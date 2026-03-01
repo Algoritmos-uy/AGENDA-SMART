@@ -1,0 +1,22 @@
+/* Capa ITCSS: orden de menor a mayor especificidad */
+@import url("./settings/variables.css");
+
+/* Genéricos */
+@import url("./generic/reset.css");
+
+/* Elementos base */
+@import url("./elements/base.css");
+
+/* Objetos de layout */
+@import url("./objects/layout.css");
+
+/* Componentes */
+@import url("./components/header.css");
+@import url("./components/buttons.css");
+@import url("./components/panels.css");
+@import url("./components/form.css");
+@import url("./components/agenda.css");
+@import url("./components/event-list.css");
+
+/* Utilidades */
+@import url("./utilities/helpers.css");

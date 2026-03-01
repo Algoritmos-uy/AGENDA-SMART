@@ -1,0 +1,18 @@
+.panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-2);
+    padding: var(--space-4);
+    box-shadow: var(--shadow-1);
+}
+
+.panel__header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-bottom: var(--space-4);
+}
+
+.panel__subtitle {
+    font-size: var(--size-1);
+}

@@ -1,0 +1,39 @@
+# Node / dependencias
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Builds y empaquetados
+dist/
+out/
+build/
+www/
+*.log
+
+# Electron-builder outputs
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.snap
+*.rpm
+*.msi
+*.nupkg
+*.blockmap
+*.zip
+*.tar.gz
+
+# Cachés
+.cache/
+.tmp/
+coverage/
+
+# SO
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agenda Inteligente</title>
+    <link rel="icon" type="image/x-icon" href="assets/icons/agenda.ico">
+    <link rel="stylesheet" href="src/css/styles.css">
+    <link rel="stylesheet" href="src/css/theme.css">
+</head>
+<body class="page">
+    <div class="page__shell">
+        <header class="site-header">
+            <div class="site-header__brand">
+                <div class="brand-mark" aria-hidden="true">
+                    <img src="assets/icons/agenda.svg" alt="" class="brand-mark__icon">
+                </div>
+                <h1>Agenda Inteligente</h1>
+            </div>
+            <div class="site-header__controls">
+                <label class="control">
+                    <span class="control__label">Fecha base</span>
+                    <input type="date" id="base-date" />
+                </label>
+                <div class="header-clock" aria-label="Hora actual">
+                    <span id="live-clock" class="header-clock__time">--:--:--</span>
+                </div>
+                <div class="view-switch" role="group" aria-label="Cambiar vista">
+                    <button class="btn btn--ghost is-active" data-target="day" aria-pressed="true">Diaria</button>
+                    <button class="btn btn--ghost" data-target="week" aria-pressed="false">Semanal</button>
+                    <button class="btn btn--ghost" data-target="month" aria-pressed="false">Mensual</button>
+                </div>
+                <button class="btn btn--ghost theme-toggle" id="theme-toggle" aria-pressed="false" type="button">Modo oscuro</button>
+                <span id="app-version" class="badge" aria-label="Versión de la aplicación"></span>
+            </div>
+        </header>
+
+        <main class="layout">
+            <section class="panel panel--form">
+                <div class="panel__header">
+                    <h2>Nuevo evento</h2>
+                    <p class="panel__subtitle">Crea, edita o elimina eventos. Se guardan localmente.</p>
+                </div>
+                <form id="event-form" class="form">
+                    <input type="hidden" id="event-id" name="event-id">
+                    <div class="form__row">
+                        <label class="control" for="title">Título</label>
+                        <input type="text" id="title" name="title" required placeholder="Ej. Reunión con el equipo">
+                    </div>
+                    <div class="form__row form__row--inline">
+                        <label class="control" for="date">Fecha</label>
+                        <input type="date" id="date" name="date" required>
+
+                        <label class="control" for="start">Inicio</label>
+                        <input type="time" id="start" name="start" required>
+
+                        <label class="control" for="end">Fin</label>
+                        <input type="time" id="end" name="end" required>
+                    </div>
+                    <div class="form__row">
+                        <label class="control" for="description">Descripción</label>
+                        <textarea id="description" name="description" rows="3" placeholder="Notas u objetivos del evento"></textarea>
+                    </div>
+                    <div class="form__row form__row--inline">
+                        <label class="control" for="color">Color</label>
+                        <input type="color" id="color" name="color" value="#2563eb">
+
+                        <div class="form__actions">
+                            <button type="submit" class="btn btn--primary" id="submit-btn">Guardar evento</button>
+                            <button type="reset" class="btn btn--ghost" id="reset-btn">Cancelar</button>
+                        </div>
+                    </div>
+                    <p class="status" id="form-status" role="status" aria-live="polite"></p>
+                </form>
+            </section>
+
+            <section class="panel panel--agenda">
+                <div class="panel__header">
+                    <h2>Calendario</h2>
+                    <p class="panel__subtitle">Cambia la vista para navegar tu agenda.</p>
+                </div>
+                <div class="agenda">
+                    <section id="view-daily" class="agenda-view" data-view="daily">
+                        <div class="agenda-view__header">
+                            <h3>Vista diaria</h3>
+                            <p class="muted" id="daily-caption"></p>
+                        </div>
+                        <div id="daily-slots" class="timeline"></div>
+                    </section>
+
+                    <section id="view-weekly" class="agenda-view is-hidden" data-view="weekly">
+                        <div class="agenda-view__header">
+                            <div>
+                                <h3>Vista semanal</h3>
+                                <p class="muted" id="weekly-caption"></p>
+                            </div>
+                            <div class="agenda-nav" role="group" aria-label="Navegar semanas">
+                                <button class="btn btn--ghost" id="weekly-prev" type="button">Semana anterior</button>
+                                <button class="btn btn--ghost" id="weekly-next" type="button">Semana siguiente</button>
+                            </div>
+                        </div>
+                        <div id="weekly-grid" class="week-grid"></div>
+                    </section>
+
+                    <section id="view-monthly" class="agenda-view is-hidden" data-view="monthly">
+                        <div class="agenda-view__header">
+                            <div>
+                                <h3>Vista mensual</h3>
+                                <p class="muted" id="monthly-caption"></p>
+                            </div>
+                            <div class="agenda-nav" role="group" aria-label="Navegar meses">
+                                <button class="btn btn--ghost" id="monthly-prev" type="button">Mes anterior</button>
+                                <button class="btn btn--ghost" id="monthly-next" type="button">Mes siguiente</button>
+                            </div>
+                        </div>
+                        <div class="month-grid" id="monthly-grid"></div>
+                    </section>
+                </div>
+            </section>
+
+            <section class="panel panel--list">
+                <div class="panel__header">
+                    <h2>Próximos eventos</h2>
+                    <p class="panel__subtitle">Ordenados cronológicamente</p>
+                </div>
+                <div id="event-list" class="event-list"></div>
+            </section>
+        </main>
+    </div>
+    <script src="src/js/theme.js" defer></script>
+    <script type="module" src="src/js/notifications.js" defer></script>
+    <script type="module" src="src/js/scripts.js" defer></script>
+</body>
+</html>

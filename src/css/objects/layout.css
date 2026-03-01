@@ -1,0 +1,34 @@
+.page {
+    padding: var(--space-5) var(--space-4);
+}
+
+.page__shell {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-5);
+    margin-top: var(--space-5);
+}
+
+@media (min-width: 900px) {
+    .layout {
+        grid-template-columns: 360px 1fr;
+        grid-template-areas:
+            "form agenda"
+            "list agenda";
+    }
+
+    .panel--form {
+        grid-area: form;
+    }
+    .panel--agenda {
+        grid-area: agenda;
+    }
+    .panel--list {
+        grid-area: list;
+    }
+}

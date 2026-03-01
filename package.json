@@ -1,0 +1,53 @@
+{
+  "name": "agenda-inteligente",
+  "version": "1.2.0",
+  "description": "Agenda local con vistas diaria/semanal/mensual, notificaciones y empaquetado Electron.",
+  "main": "src/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "build": "node tools/build.js",
+    "start": "npm run build && electron .",
+    "dev": "electron .",
+    "dist": "npm run build && electron-builder",
+    "build:win": "npm run build && electron-builder --win --x64",
+    "build:linux": "npm run build && electron-builder --linux",
+    "lint": "echo \"No lint configurado\""
+  },
+  "build": {
+    "appId": "com.algoritmia.agenda",
+    "productName": "Agenda Inteligente",
+    "files": [
+      "index.html",
+      "assets/**/*",
+      "src/**/*",
+      "www/**/*",
+      "!node_modules",
+      "!dist"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/icons/agenda.ico"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "assets/icons/agenda.png",
+      "category": "Office"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "electron": "^40.6.1",
+    "electron-builder": "^26.8.1"
+  }
+}

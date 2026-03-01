@@ -1,0 +1,95 @@
+.site-header {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-2);
+    padding: var(--space-4);
+    box-shadow: var(--shadow-soft);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.site-header__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 60px;
+    height: 60px;
+    border-radius: 12px;
+    background: var(--color-primary-soft);
+    box-shadow: var(--shadow-sm);
+    flex-shrink: 0;
+}
+
+.brand-mark__icon {
+    width: 45px;
+    height: 45px;
+    display: block;
+}
+
+.site-header__controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--space-3);
+    align-items: center;
+    justify-content: space-around;
+}
+
+.view-switch button {
+    margin-left: .5rem;
+    
+}
+
+/* Breakpoint móvil pequeño */
+@media (max-width: 449px) {
+    .site-header {
+        padding: var(--space-3);
+    }
+
+    .site-header__controls {
+        grid-template-columns: 1fr;
+    }
+
+    .view-switch {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        width: 100%;
+    }
+
+    .view-switch .btn {
+        flex: 1 1 100%;
+        justify-content: center;
+        margin: 0;
+    }
+
+    .header-clock {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* Layout horizontal en pantallas grandes */
+@media (min-width: 900px) {
+    .site-header__controls {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        grid-template-columns: none;
+    }
+    .view-switch {
+        display: inline-flex;
+        flex-wrap: nowrap;
+    }
+    #theme-toggle,
+    .theme-toggle {
+        padding: 0.5rem 0.75rem;
+        min-width: auto;
+    }
+}

@@ -1,0 +1,39 @@
+:root {
+    /* Colores base */
+    --color-primary: #2563eb;
+    --color-primary-strong: #1d4ed8;
+    --color-primary-soft: #dbeafe;
+    --color-surface: #ffffff;
+    --color-surface-muted: #f5f7fb;
+    --color-border: #d9e2ec;
+    --color-text: #0f172a;
+    --color-text-muted: #475569;
+    --color-danger: #ef4444;
+    --color-success: #16a34a;
+
+    /* Tipografía y escala */
+    --font-base: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --size-0: 0.75rem;
+    --size-1: 0.875rem;
+    --size-2: 1rem;
+    --size-3: 1.125rem;
+    --size-4: 1.25rem;
+    --size-5: 1.5rem;
+
+    /* Espaciado */
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.5rem;
+    --space-6: 2rem;
+
+    /* Dimensiones */
+    --radius-1: 6px;
+    --radius-2: 10px;
+    --shadow-1: 0 6px 16px rgba(15, 23, 42, 0.08);
+    --shadow-soft: 0 2px 8px rgba(15, 23, 42, 0.06);
+
+    /* Z-index */
+    --z-sticky: 10;
+}

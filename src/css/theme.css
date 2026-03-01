@@ -1,0 +1,73 @@
+:root {
+    color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --color-surface: #0f172a;
+    --color-surface-muted: #0b1221;
+    --color-border: #1f2a44;
+    --color-text: #e2e8f0;
+    --color-text-muted: #cbd5e1;
+    --color-primary-soft: #1e3a8a;
+    --color-primary: #3b82f6;
+    --color-primary-strong: #2563eb;
+    --shadow-1: 0 10px 24px rgba(0, 0, 0, 0.45);
+    --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+:root[data-theme="dark"] body {
+    background: linear-gradient(180deg, #0b1221 0%, #0f172a 100%);
+}
+
+:root[data-theme="dark"] .brand-mark {
+    background: radial-gradient(circle at 30% 30%, #1e3a8a, #3b82f6);
+}
+
+:root[data-theme="dark"] .agenda-view {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+:root[data-theme="dark"] .event-card {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+:root[data-theme="dark"] .btn--ghost {
+    color: var(--color-text);
+    border-color: var(--color-border);
+}
+
+.theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.theme-toggle::before {
+    content: "\1F319"; /* luna */
+    font-size: 1rem;
+    line-height: 1;
+}
+
+:root[data-theme="dark"] .theme-toggle::before {
+    content: "\2600"; /* sol */
+}
+
+/* Fondo y texto del reloj en modo oscuro */
+:root[data-theme="dark"] .header-clock {
+    background: #1f2933;
+    color: #e5e7eb;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: none;
+}
+
+/* Ícono del toggle */
+#theme-toggle::before,
+.theme-toggle::before {
+    content: "🌞";
+    margin-right: 0.5rem;
+}
+:root[data-theme="dark"] #theme-toggle::before,
+:root[data-theme="dark"] .theme-toggle::before {
+    content: "🌙";
+}

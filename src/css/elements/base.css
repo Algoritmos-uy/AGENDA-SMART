@@ -1,0 +1,25 @@
+body {
+    font-family: var(--font-base);
+    color: var(--color-text);
+    background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 100%);
+    min-height: 100vh;
+}
+
+a {
+    color: var(--color-primary);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    margin: 0;
+    color: var(--color-text);
+}
+
+p {
+    margin: 0;
+    color: var(--color-text-muted);
+}
