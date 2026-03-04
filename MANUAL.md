@@ -7,12 +7,14 @@
 - Notificaciones locales 10 minutos antes (requiere permitir notificaciones) con sonido `assets/audio/alerta.mp3`.
 - Tema claro/oscuro con persistencia.
 - Reloj en cabecera y fecha base para navegar.
+- CoordinalIA (asistente): consultas rápidas, creación de eventos por chat, conservación del hilo, detección de idioma (es/en/pt).
 
 ## Primeros pasos
 
 1. Abre `index.html` en el navegador (o ejecuta la app de escritorio).
 2. Permite notificaciones si el navegador lo solicita.
 3. Revisa que la fecha base muestre el día actual.
+4. (Solo escritorio) Configura la clave de IA: crea `.env` en la raíz con `DEEPSEEK_API_KEY=tu-clave`. Reinicia la app.
 
 ## Crear o editar evento
 
@@ -37,6 +39,15 @@
 - Se programan 10 min antes de la hora de inicio.
 - Solo se disparan con la app abierta (web/Electron).
 - El sonido se reproduce al mostrarse la notificación.
+
+## CoordinalIA (asistente)
+
+- Abrir: botón **CoordinalIA** en la cabecera.
+- Idioma: se ajusta automáticamente (es/en/pt) al idioma del sistema.
+- Hilo: se conserva entre aperturas; botón **Vaciar chat** limpia el historial.
+- Consultas rápidas locales (sin usar API): escribe “eventos de hoy”, “eventos de la semana” o “eventos del mes” (también en inglés/portugués) para listar lo guardado.
+- Crear eventos por chat: indica título, fecha (YYYY-MM-DD), hora inicio/fin (HH:MM) y descripción; el asistente devolverá un JSON y la app lo guardará automáticamente. Se confirmará con un mensaje breve.
+- Si falta un dato, el asistente lo pedirá; si no hay clave configurada, te avisará.
 
 ## Tema y reloj
 

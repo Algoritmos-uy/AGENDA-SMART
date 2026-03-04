@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('appBridge', {
   // Prueba de conectividad preload ↔ renderer.
   ping: () => 'pong',
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
+  getLocale: () => ipcRenderer.invoke('app:getLocale'),
   chat: (messages) => ipcRenderer.invoke('assistant:chat', { messages }),
   chatStream: (messages, requestId) => ipcRenderer.invoke('assistant:chatStream', { messages, requestId }),
   onAssistantChunk: (callback) => {

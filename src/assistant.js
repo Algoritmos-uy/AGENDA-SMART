@@ -7,24 +7,31 @@ const DEFAULT_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
 const API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
 
 function loadLocalEnv() {
-  try {
-    const envPath = path.join(__dirname, '..', '.env');
-    if (!fs.existsSync(envPath)) return;
-    const raw = fs.readFileSync(envPath, 'utf8');
-    raw.split(/\r?\n/).forEach((line) => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) return;
-      const eq = trimmed.indexOf('=');
-      if (eq === -1) return;
-      const key = trimmed.slice(0, eq).trim();
-      const value = trimmed.slice(eq + 1).trim();
-      if (key && !(key in process.env)) {
-        process.env[key] = value;
-      }
-    });
-  } catch (e) {
-    // No interrumpir si no se puede leer .env
-    console.warn('No se pudo cargar .env', e);
+  const candidates = [
+    path.join(__dirname, '..', '.env'), // ruta en dev
+    path.resolve(process.cwd(), '.env'), // por si el cwd cambia
+    path.join(process.resourcesPath || '', '.env'), // ruta en app empaquetada
+  ].filter(Boolean);
+
+  for (const envPath of candidates) {
+    try {
+      if (!fs.existsSync(envPath)) continue;
+      const raw = fs.readFileSync(envPath, 'utf8');
+      raw.split(/\r?\n/).forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        const eq = trimmed.indexOf('=');
+        if (eq === -1) return;
+        const key = trimmed.slice(0, eq).trim();
+        const value = trimmed.slice(eq + 1).trim();
+        if (key && !(key in process.env)) {
+          process.env[key] = value;
+        }
+      });
+      return; // ya cargado
+    } catch (e) {
+      console.warn('No se pudo cargar .env en', envPath, e);
+    }
   }
 }
 

@@ -25,7 +25,7 @@ function createWindow() {
     },
   });
 
-  win.setTitle(`Agenda Inteligente v${app.getVersion()}`);
+  win.setTitle(`Agenda-Smart Profesional v${app.getVersion()}`);
   win.loadFile(indexPath);
 
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -51,6 +51,18 @@ function createWindow() {
 }
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
+ipcMain.handle('app:getLocale', () => {
+  // Preferimos el locale del sistema. Si falla, devolvemos 'es'.
+  try {
+    if (typeof app.getPreferredSystemLanguages === 'function') {
+      const langs = app.getPreferredSystemLanguages();
+      if (Array.isArray(langs) && langs.length) return langs[0];
+    }
+    return app.getLocale?.() || 'es';
+  } catch (e) {
+    return 'es';
+  }
+});
 ipcMain.handle('assistant:chat', async (_event, payload = {}) => {
   const { messages = [] } = payload;
   return callAssistant(messages);

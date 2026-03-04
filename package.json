@@ -1,6 +1,6 @@
 {
-  "name": "agenda-inteligente",
-  "version": "1.2.1",
+  "name": "agenda-smart",
+  "version": "1.3.5",
   "description": "Agenda local con vistas diaria/semanal/mensual, notificaciones y empaquetado Electron.",
   "main": "src/main.js",
   "type": "commonjs",
@@ -15,7 +15,7 @@
   },
   "build": {
     "appId": "com.algoritmia.agenda",
-    "productName": "Agenda Inteligente",
+    "productName": "Agenda-Smart Profesional",
     "files": [
       "index.html",
       "assets/**/*",
