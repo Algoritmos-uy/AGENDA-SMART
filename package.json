@@ -1,6 +1,6 @@
 {
   "name": "agenda-inteligente",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Agenda local con vistas diaria/semanal/mensual, notificaciones y empaquetado Electron.",
   "main": "src/main.js",
   "type": "commonjs",

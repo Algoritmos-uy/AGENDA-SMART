@@ -5,5 +5,13 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('appBridge', {
   // Prueba de conectividad preload ↔ renderer.
   ping: () => 'pong',
-  getVersion: () => ipcRenderer.invoke('app:getVersion')
+  getVersion: () => ipcRenderer.invoke('app:getVersion'),
+  chat: (messages) => ipcRenderer.invoke('assistant:chat', { messages }),
+  chatStream: (messages, requestId) => ipcRenderer.invoke('assistant:chatStream', { messages, requestId }),
+  onAssistantChunk: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('assistant:chunk', handler);
+    return () => ipcRenderer.removeListener('assistant:chunk', handler);
+  }
 });

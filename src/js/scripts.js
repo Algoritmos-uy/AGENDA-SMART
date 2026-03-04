@@ -41,6 +41,19 @@ import { Notifier } from './notifications.js';
     const monthlyCaption = document.getElementById('monthly-caption');
 
     const clockEl = document.getElementById('live-clock');
+    const assistantOpenBtn = document.getElementById('assistant-open');
+    const assistantModal = document.getElementById('assistant-modal');
+    const assistantCloseBtn = document.getElementById('assistant-close');
+    const assistantCloseFooterBtn = document.getElementById('assistant-close-footer');
+    const assistantThread = document.getElementById('assistant-thread');
+    const assistantForm = document.getElementById('assistant-form');
+    const assistantInput = document.getElementById('assistant-input');
+    const assistantStatus = document.getElementById('assistant-status');
+    const assistantSendBtn = document.getElementById('assistant-send');
+
+    const assistantMessages = [];
+    let assistantUnsubscribe = null;
+    const assistantSystemPrompt = 'Eres CoordinalIA, asistente de Agenda Inteligente. Responde breve, en español, y ayuda a gestionar eventos (crear, listar, reprogramar). Si falta la API key, indica que se debe configurar DEEPSEEK_API_KEY.';
 
     document.addEventListener('DOMContentLoaded', init);
 
@@ -67,6 +80,7 @@ import { Notifier } from './notifications.js';
         monthlyNextBtn?.addEventListener('click', () => shiftBaseDateMonths(1));
 
         hydrateVersion();
+        setupAssistantModal();
     }
 
     // Crear o actualizar eventos desde el formulario.
@@ -451,5 +465,155 @@ import { Notifier } from './notifications.js';
         } catch (err) {
             console.warn('No se pudo obtener la versión', err);
         }
+    }
+
+    function setupAssistantModal() {
+        if (!assistantModal || !assistantOpenBtn) return;
+        const closeButtons = [assistantCloseBtn, assistantCloseFooterBtn];
+        const backdrop = assistantModal.querySelector('[data-dismiss="assistant"]');
+
+        assistantOpenBtn.addEventListener('click', openAssistantModal);
+        closeButtons.forEach(btn => btn?.addEventListener('click', closeAssistantModal));
+        backdrop?.addEventListener('click', closeAssistantModal);
+
+        document.addEventListener('keydown', (evt) => {
+            if (evt.key === 'Escape' && !assistantModal.classList.contains('is-hidden')) {
+                closeAssistantModal();
+            }
+        });
+
+        assistantForm?.addEventListener('submit', handleAssistantSubmit);
+    }
+
+    function openAssistantModal() {
+        assistantModal.classList.remove('is-hidden');
+        assistantModal.querySelector('.modal__dialog')?.focus?.();
+        if (!assistantMessages.length) {
+            appendAssistantMessage({
+                role: 'assistant',
+                content: 'Hola, soy CoordinalIA. Puedo ayudarte a crear, consultar o reprogramar eventos. ¿Qué necesitas?'
+            });
+        }
+        scrollAssistantBottom();
+    }
+
+    function closeAssistantModal() {
+        assistantModal.classList.add('is-hidden');
+        assistantOpenBtn?.focus();
+    }
+
+    async function handleAssistantSubmit(evt) {
+        evt.preventDefault();
+        if (!assistantInput) return;
+        const text = assistantInput.value.trim();
+        if (!text) return;
+
+        appendAssistantMessage({ role: 'user', content: text });
+        assistantInput.value = '';
+        setAssistantStatus('Enviando...');
+        setAssistantBusy(true);
+
+        const messagesForApi = buildAssistantPayload();
+        try {
+            const requestId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+            const assistantMsg = { role: 'assistant', content: '', requestId };
+            appendAssistantMessage(assistantMsg);
+
+            if (!window.appBridge?.chatStream) {
+                throw new Error('Disponible solo en la app de escritorio (Electron)');
+            }
+
+            // Suscribir a los chunks de streaming
+            assistantUnsubscribe?.();
+            assistantUnsubscribe = window.appBridge.onAssistantChunk((data) => {
+                if (!data || data.requestId !== requestId) return;
+                if (data.delta) {
+                    assistantMsg.content += data.delta;
+                    renderAssistantMessages();
+                }
+                if (data.done) {
+                    setAssistantStatus('');
+                    setAssistantBusy(false);
+                    assistantUnsubscribe?.();
+                }
+            });
+
+            const finalReply = await window.appBridge.chatStream(messagesForApi, requestId);
+            if (!assistantMsg.content) {
+                assistantMsg.content = finalReply || 'Sin respuesta del asistente.';
+                renderAssistantMessages();
+            }
+            setAssistantStatus('');
+        } catch (err) {
+            console.error('assistant error', err);
+            const msg = err?.message || 'Error al contactar el asistente';
+            appendAssistantMessage({ role: 'assistant', content: `⚠️ ${msg}` });
+            setAssistantStatus(msg);
+        } finally {
+            setAssistantBusy(false);
+            scrollAssistantBottom();
+        }
+    }
+
+    function appendAssistantMessage(message) {
+        assistantMessages.push(message);
+        renderAssistantMessages();
+    }
+
+    function renderAssistantMessages() {
+        if (!assistantThread) return;
+        assistantThread.innerHTML = '';
+        assistantMessages.slice(-20).forEach((msg) => {
+            const div = document.createElement('div');
+            div.className = `assistant-msg assistant-msg--${msg.role}`;
+            div.textContent = msg.content;
+            assistantThread.appendChild(div);
+        });
+    }
+
+    function buildAssistantPayload() {
+        const history = assistantMessages
+            .filter(m => m.role === 'user' || m.role === 'assistant')
+            .slice(-10);
+        const context = buildAssistantContext();
+        const base = [{ role: 'system', content: assistantSystemPrompt }];
+        if (context) base.push({ role: 'system', content: context });
+        return [...base, ...history];
+    }
+
+    function buildAssistantContext() {
+        const events = sortEvents(getEvents());
+        const today = new Date();
+        const todayFloor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const upcoming = events
+            .filter(ev => {
+                const d = parseLocalDate(ev.date);
+                return d && d >= todayFloor;
+            })
+            .slice(0, 5);
+
+        if (!upcoming.length) return '';
+
+        const lines = upcoming.map(ev => {
+            const desc = ev.description ? ` — ${ev.description}` : '';
+            return `- ${ev.date} ${ev.start}-${ev.end} ${ev.title}${desc}`;
+        });
+        return 'Contexto de agenda (máx 5 próximos):\n' + lines.join('\n');
+    }
+
+    function setAssistantStatus(text) {
+        if (assistantStatus) assistantStatus.textContent = text;
+    }
+
+    function setAssistantBusy(isBusy) {
+        if (assistantSendBtn) assistantSendBtn.disabled = isBusy;
+        if (assistantInput) assistantInput.disabled = isBusy;
+    }
+
+    function scrollAssistantBottom() {
+        if (!assistantThread) return;
+        requestAnimationFrame(() => {
+            assistantThread.scrollTop = assistantThread.scrollHeight;
+        });
     }
 })();

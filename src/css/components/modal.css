@@ -1,0 +1,134 @@
+.modal {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    z-index: 1000;
+}
+
+.modal.is-hidden {
+    display: none;
+}
+
+.modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+}
+
+.modal__dialog {
+    position: relative;
+    background: var(--color-surface);
+    color: var(--color-text);
+    border-radius: var(--radius-3);
+    box-shadow: var(--shadow-lg);
+    width: min(640px, calc(100% - 2rem));
+    padding: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    z-index: 1;
+}
+
+.modal__header,
+.modal__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.modal__title-group {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.modal__icon {
+    font-size: 1.4rem;
+    line-height: 1;
+}
+
+.modal__icon-img {
+    width: 45px;
+    height: 45px;
+    object-fit: contain;
+    display: block;
+}
+
+.modal__body {
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+.modal__close {
+    font-size: 1.1rem;
+    padding: 0.35rem 0.5rem;
+}
+
+@media (max-width: 540px) {
+    .modal__dialog {
+        width: min(520px, calc(100% - 1.25rem));
+        padding: var(--space-3);
+    }
+}
+
+.assistant-chat {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.assistant-thread {
+    max-height: 320px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-2);
+    background: var(--color-surface-muted, #f7f8fa);
+}
+
+.assistant-msg {
+    padding: var(--space-2);
+    border-radius: var(--radius-2);
+    max-width: 90%;
+    line-height: 1.4;
+    white-space: pre-wrap;
+}
+
+.assistant-msg--user {
+    align-self: flex-end;
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+}
+
+.assistant-msg--assistant {
+    align-self: flex-start;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+}
+
+.assistant-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.assistant-form textarea {
+    width: 100%;
+    resize: vertical;
+    min-height: 80px;
+}
+
+.assistant-form__actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}

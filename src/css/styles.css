@@ -17,6 +17,7 @@
 @import url("./components/form.css");
 @import url("./components/agenda.css");
 @import url("./components/event-list.css");
+@import url("./components/modal.css");
 
 /* Utilidades */
 @import url("./utilities/helpers.css");

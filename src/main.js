@@ -1,4 +1,5 @@
 const { app, BrowserWindow, Menu, shell, ipcMain } = require('electron');
+const { callAssistant, callAssistantStream } = require('./assistant');
 const path = require('path');
 
 if (!app.requestSingleInstanceLock()) {
@@ -50,6 +51,20 @@ function createWindow() {
 }
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
+ipcMain.handle('assistant:chat', async (_event, payload = {}) => {
+  const { messages = [] } = payload;
+  return callAssistant(messages);
+});
+ipcMain.handle('assistant:chatStream', async (event, payload = {}) => {
+  const { messages = [], requestId } = payload;
+  const sender = event?.sender;
+  const sendChunk = (data) => {
+    if (sender && !sender.isDestroyed()) {
+      sender.send('assistant:chunk', { ...data, requestId });
+    }
+  };
+  return callAssistantStream(messages, { onChunk: sendChunk });
+});
 
 app.whenReady().then(() => {
   if (process.platform === 'win32') app.setAppUserModelId('com.agenda.online');

@@ -45,6 +45,26 @@ npm run build:win    # solo Windows
 npm run build:linux  # solo Linux
 ```
 
+## CoordinalIA (IA) y API key
+
+La IA usa la API de DeepSeek. Necesitas definir `DEEPSEEK_API_KEY` antes de arrancar:
+
+1. Copia `.env.example` a `.env` y reemplaza el valor de la clave.
+2. Alternativamente, exporta la variable en la consola.
+
+Ejemplo rápido (PowerShell):
+
+```pwsh
+$env:DEEPSEEK_API_KEY = "tu-api-key"
+npm run start
+```
+
+Variables disponibles:
+
+- `DEEPSEEK_API_KEY` (obligatoria)
+- `DEEPSEEK_MODEL` (opcional, por defecto `deepseek-chat`)
+- `DEEPSEEK_API_URL` (opcional, por defecto `https://api.deepseek.com/v1/chat/completions`)
+
 ## Iconos
 
 - Windows: `assets/icons/agenda.ico`

@@ -10,27 +10,72 @@
 }
 
 .site-header__brand {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: var(--space-2);
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.site-header__brand h1 {
+    font-size: clamp(1.25rem, 1.1rem + 1vw, 1.9rem);
+    margin: 0;
+    line-height: 1.2;
 }
 
 .brand-mark {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 60px;
-    height: 60px;
-    border-radius: 12px;
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
     background: var(--color-primary-soft);
     box-shadow: var(--shadow-sm);
     flex-shrink: 0;
 }
 
 .brand-mark__icon {
-    width: 45px;
-    height: 45px;
+    width: 60px;
+    height: 60px;
     display: block;
+}
+
+.developer-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+.developer-tag__label {
+    font-size: 0.95rem;
+    color: var(--color-text-muted, #5b6472);
+}
+
+.developer-tag__logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+.developer-tag__logo img {
+    height: 70px;
+    width: 70px;
+    object-fit: contain;
+    display: block;
+}
+
+.developer-tag__link {
+    color: var(--color-primary-strong);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.developer-tag__link:hover,
+.developer-tag__link:focus-visible {
+    text-decoration: underline;
 }
 
 .site-header__controls {
@@ -41,15 +86,34 @@
     justify-content: space-around;
 }
 
+.assistant-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding-inline: var(--space-3);
+}
+
+.assistant-trigger__icon {
+    width: 20px;
+    height: 20px;
+    display: inline-block;
+    object-fit: contain;
+    filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.1));
+}
+
 .view-switch button {
-    margin-left: .5rem;
-    
+    margin-left: 0.5rem;
 }
 
 /* Breakpoint móvil pequeño */
 @media (max-width: 449px) {
     .site-header {
         padding: var(--space-3);
+    }
+
+    .site-header__brand {
+        flex-direction: column;
+        align-items: center;
     }
 
     .site-header__controls {
