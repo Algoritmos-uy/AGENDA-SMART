@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('appBridge', {
   getLocale: () => ipcRenderer.invoke('app:getLocale'),
   chat: (messages) => ipcRenderer.invoke('assistant:chat', { messages }),
   chatStream: (messages, requestId) => ipcRenderer.invoke('assistant:chatStream', { messages, requestId }),
+  getEvents: () => ipcRenderer.invoke('events:get'),
+  saveEvents: (events) => ipcRenderer.invoke('events:save', events),
   onAssistantChunk: (callback) => {
     if (typeof callback !== 'function') return () => {};
     const handler = (_event, data) => callback(data);

@@ -4,8 +4,10 @@ import { Notifier } from './notifications.js';
 (() => {
     const notifier = new Notifier();
 
-    // Clave única para persistir en localStorage.
+    // Persistencia: preferir store nativo (IPC) y hacer fallback a localStorage.
     const STORAGE_KEY = 'agenda-online-events';
+    const hasNativeStore = typeof window !== 'undefined' && !!window.appBridge?.getEvents;
+    let eventsCache = [];
 
     // Referencias de UI y campos del formulario.
     const form = document.getElementById('event-form');
@@ -25,6 +27,11 @@ import { Notifier } from './notifications.js';
     const descInput = document.getElementById('description');
     const colorInput = document.getElementById('color');
     const eventIdInput = document.getElementById('event-id');
+    const reminderSelect = document.getElementById('reminder');
+    const reminderCustomInput = document.getElementById('reminder-custom');
+    const reminderCustomWrapper = document.getElementById('reminder-custom-wrapper');
+
+    const DEFAULT_REMINDER_MINUTES = 10;
 
     const viewButtons = Array.from(document.querySelectorAll('[data-target]'));
     const views = document.querySelectorAll('.agenda-view');
@@ -113,11 +120,14 @@ import { Notifier } from './notifications.js';
         dateInput.value = formatISODate(today);
         startInput.value = '09:00';
         endInput.value = '10:00';
+    setReminderDefault();
 
         startClock();
         try { await notifier.init(); } catch (e) { console.warn('Notifier init failed', e); }
-        renderAll();
-        try { notifier.rescheduleAll(getEvents()); } catch (e) { console.warn('Reschedule failed', e); }
+
+    await loadEventsFromStore();
+    renderAll();
+    try { notifier.rescheduleAll(getEvents()); } catch (e) { console.warn('Reschedule failed', e); }
 
     await hydrateAssistantLocale();
     loadAssistantHistory();
@@ -130,6 +140,7 @@ import { Notifier } from './notifications.js';
         weeklyNextBtn?.addEventListener('click', () => shiftBaseDateDays(7));
         monthlyPrevBtn?.addEventListener('click', () => shiftBaseDateMonths(-1));
         monthlyNextBtn?.addEventListener('click', () => shiftBaseDateMonths(1));
+    reminderSelect?.addEventListener('change', handleReminderChange);
 
         hydrateVersion();
         setupAssistantModal();
@@ -138,7 +149,7 @@ import { Notifier } from './notifications.js';
     // Crear o actualizar eventos desde el formulario.
     function handleSubmit(event) {
         event.preventDefault();
-        const payload = getFormData();
+    const payload = getFormData();
         if (!payload) return;
 
         const events = getEvents();
@@ -191,6 +202,7 @@ import { Notifier } from './notifications.js';
         eventIdInput.value = '';
         submitBtn.textContent = 'Guardar evento';
         setStatus('');
+        setReminderDefault();
     }
 
     // Lee y valida campos del formulario; devuelve un objeto de evento o null.
@@ -202,6 +214,8 @@ import { Notifier } from './notifications.js';
         const description = descInput.value.trim();
         const color = colorInput.value || '#2563eb';
         const id = eventIdInput.value || null;
+    const reminderSeconds = getReminderSecondsFromForm();
+    if (reminderSeconds === null) return null;
 
         if (!title || !date || !start || !end) {
             setStatus('Completa título, fecha y horas.', 'danger');
@@ -213,7 +227,7 @@ import { Notifier } from './notifications.js';
             return null;
         }
 
-        return { id, title, date, start, end, description, color };
+        return { id, title, date, start, end, description, color, reminder_offset: reminderSeconds };
     }
 
     // Muestra mensajes de estado contextuales.
@@ -222,14 +236,61 @@ import { Notifier } from './notifications.js';
         statusEl.className = `status ${type ? `text-${type}` : ''}`.trim();
     }
 
-    // CRUD: leer y guardar desde/para localStorage.
+
+    // Persistencia de eventos (cache + store nativo o localStorage como fallback).
     function getEvents() {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        return raw ? JSON.parse(raw) : [];
+        return eventsCache;
+    }
+
+    async function loadEventsFromStore() {
+        if (hasNativeStore && window.appBridge?.getEvents) {
+            try {
+                const nativeEvents = await window.appBridge.getEvents();
+                if (Array.isArray(nativeEvents) && nativeEvents.length) {
+                    eventsCache = nativeEvents;
+                    return;
+                }
+                // Migración inicial: si no hay datos en store nativo, usa localStorage si existe.
+                const legacy = loadEventsFromLocal();
+                eventsCache = legacy;
+                await window.appBridge.saveEvents(eventsCache);
+                return;
+            } catch (e) {
+                console.warn('No se pudo cargar store nativo, se usa localStorage', e);
+                eventsCache = loadEventsFromLocal();
+                return;
+            }
+        }
+        eventsCache = loadEventsFromLocal();
     }
 
     function saveEvents(list) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+        eventsCache = Array.isArray(list) ? [...list] : [];
+        if (hasNativeStore && window.appBridge?.saveEvents) {
+            window.appBridge.saveEvents(eventsCache).catch((e) => console.warn('Persistencia nativa falló', e));
+        }
+        // Mantener localStorage sincronizado como respaldo.
+        saveEventsToLocal(eventsCache);
+    }
+
+    function loadEventsFromLocal() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return [];
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+            console.warn('No se pudo parsear eventos locales', e);
+            return [];
+        }
+    }
+
+    function saveEventsToLocal(list) {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+        } catch (e) {
+            console.warn('No se pudo guardar en localStorage', e);
+        }
     }
 
     function renderAll() {
@@ -418,8 +479,57 @@ import { Notifier } from './notifications.js';
         descInput.value = ev.description || '';
         colorInput.value = ev.color;
         eventIdInput.value = ev.id;
+        applyReminderToForm(ev.reminder_offset);
         submitBtn.textContent = 'Actualizar evento';
         setStatus('Editando evento. Guarda o cancela.', 'muted');
+    }
+
+    function handleReminderChange() {
+        const value = reminderSelect.value;
+        const isCustom = value === 'custom';
+        if (isCustom) {
+            reminderCustomWrapper.style.display = 'flex';
+            if (!reminderCustomInput.value) reminderCustomInput.value = '';
+            reminderCustomInput.focus();
+        } else {
+            reminderCustomWrapper.style.display = 'none';
+            reminderCustomInput.value = '';
+        }
+    }
+
+    function setReminderDefault() {
+        if (!reminderSelect) return;
+        reminderSelect.value = String(DEFAULT_REMINDER_MINUTES);
+        reminderCustomInput.value = '';
+        reminderCustomWrapper.style.display = 'none';
+    }
+
+    function getReminderSecondsFromForm() {
+        if (!reminderSelect) return DEFAULT_REMINDER_MINUTES * 60;
+        const value = reminderSelect.value;
+        if (value === 'custom') {
+            const minutes = parseInt(reminderCustomInput.value, 10);
+            if (Number.isFinite(minutes) && minutes > 0) return minutes * 60;
+            setStatus('Ingresa minutos válidos para el recordatorio.', 'danger');
+            return null;
+        }
+        const minutes = parseInt(value, 10);
+        return Number.isFinite(minutes) && minutes > 0 ? minutes * 60 : DEFAULT_REMINDER_MINUTES * 60;
+    }
+
+    function applyReminderToForm(reminderOffsetSeconds) {
+        if (!reminderSelect) return;
+        const minutes = Number.isFinite(reminderOffsetSeconds) ? Math.round(reminderOffsetSeconds / 60) : DEFAULT_REMINDER_MINUTES;
+        const allowed = ['5', '10', '15', '30', '60'];
+        if (allowed.includes(String(minutes))) {
+            reminderSelect.value = String(minutes);
+            reminderCustomWrapper.style.display = 'none';
+            reminderCustomInput.value = '';
+        } else {
+            reminderSelect.value = 'custom';
+            reminderCustomWrapper.style.display = 'flex';
+            reminderCustomInput.value = minutes > 0 ? minutes : '';
+        }
     }
 
     // Helpers
@@ -810,10 +920,12 @@ import { Notifier } from './notifications.js';
         if (errors.length) {
             return { ok: false, error: errors.join(' ') };
         }
-        return { ok: true, data: { title, date, start, end, description, color } };
+        const reminder_offset = normalizeReminderOffset(obj.reminder_offset);
+        return { ok: true, data: { title, date, start, end, description, color, reminder_offset } };
     }
 
     function toEventPayload(data) {
+        const reminder_offset = normalizeReminderOffset(data.reminder_offset);
         return {
             id: generateId(),
             title: data.title,
@@ -821,8 +933,15 @@ import { Notifier } from './notifications.js';
             start: data.start,
             end: data.end,
             description: data.description || '',
-            color: data.color || '#2563eb'
+            color: data.color || '#2563eb',
+            reminder_offset
         };
+    }
+
+    function normalizeReminderOffset(value) {
+        const num = Number(value);
+        if (Number.isFinite(num) && num >= 0) return num;
+        return 600; // 10 minutos por defecto
     }
 
     function buildAssistantContext() {

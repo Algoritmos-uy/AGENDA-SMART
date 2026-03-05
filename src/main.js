@@ -1,11 +1,18 @@
-const { app, BrowserWindow, Menu, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, shell, ipcMain, Tray } = require('electron');
 const { callAssistant, callAssistantStream } = require('./assistant');
+const store = require('./backgroundStore');
+const scheduler = require('./backgroundScheduler');
 const path = require('path');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
 }
+
+let mainWindow = null;
+let tray = null;
+let isQuitting = false;
+const stayInTray = true;
 
 function createWindow() {
   const iconName = process.platform === 'win32' ? 'agenda.ico' : 'agenda.png';
@@ -47,12 +54,22 @@ function createWindow() {
     menu.popup({ window: win });
   });
 
+  win.on('close', (e) => {
+    if (isQuitting) return;
+    if (stayInTray) {
+      e.preventDefault();
+      win.hide();
+      return;
+    }
+    isQuitting = true;
+  });
+
+  mainWindow = win;
   return win;
 }
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
 ipcMain.handle('app:getLocale', () => {
-  // Preferimos el locale del sistema. Si falla, devolvemos 'es'.
   try {
     if (typeof app.getPreferredSystemLanguages === 'function') {
       const langs = app.getPreferredSystemLanguages();
@@ -78,9 +95,60 @@ ipcMain.handle('assistant:chatStream', async (event, payload = {}) => {
   return callAssistantStream(messages, { onChunk: sendChunk });
 });
 
+ipcMain.handle('events:get', async () => store.readEvents());
+
+ipcMain.handle('events:save', async (_event, list = []) => {
+  try {
+    const normalized = Array.isArray(list) ? list : [];
+    await store.writeEvents(normalized);
+    scheduler.onEventsSaved();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || 'write_failed' };
+  }
+});
+
+function createTray() {
+  const iconName = process.platform === 'win32' ? 'agenda.ico' : 'agenda.png';
+  const iconPath = path.join(app.getAppPath(), 'assets', 'icons', iconName);
+  tray = new Tray(iconPath);
+  tray.setToolTip('Agenda-Smart Profesional');
+  const template = [
+    {
+      label: 'Mostrar',
+      click: () => {
+        if (!mainWindow) return;
+        mainWindow.show();
+        mainWindow.focus();
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Salir',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ];
+  tray.setContextMenu(Menu.buildFromTemplate(template));
+  tray.on('click', () => {
+    if (!mainWindow) return;
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
+
 app.whenReady().then(() => {
   if (process.platform === 'win32') app.setAppUserModelId('com.agenda.online');
   createWindow();
+  createTray();
+
+  scheduler.initScheduler();
+  store.readEvents().then(() => {
+    scheduler.checkUpcomingEvents();
+  }).catch(() => scheduler.checkUpcomingEvents());
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -95,5 +163,13 @@ app.on('second-instance', () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (isQuitting) return;
+  if (process.platform !== 'darwin') {
+    return;
+  }
+});
+
+app.on('before-quit', () => {
+  isQuitting = true;
+  scheduler.clearAllTimers();
 });
