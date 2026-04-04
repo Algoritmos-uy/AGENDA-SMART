@@ -1,4 +1,30 @@
 import { Notifier } from './notifications.js';
+import {
+    addDays,
+    addMonths,
+    buildSlots,
+    formatISODate,
+    formatReadableDate,
+    generateId,
+    isInSlot,
+    normalizeLocale,
+    sameDate,
+    sortEvents,
+    startOfWeek
+} from './utils/agendaDateUtils.js';
+import {
+    detectAssistantRange,
+    extractAssistantAction,
+    toEventPayload,
+    validateEventPayload
+} from './utils/assistantEventUtils.js';
+import {
+    cleanVoiceTranscript,
+    getVoiceLang,
+    hasVoiceRecognitionSupport,
+    mapVoiceErrorCode
+} from './utils/voiceUtils.js';
+import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
 // Módulo IIFE: aísla la lógica de la agenda en un ámbito propio.
 (() => {
@@ -49,6 +75,7 @@ import { Notifier } from './notifications.js';
 
     const clockEl = document.getElementById('live-clock');
     const assistantOpenBtn = document.getElementById('assistant-open');
+    const autoStartToggle = document.getElementById('autostart-toggle');
     const assistantModal = document.getElementById('assistant-modal');
     const assistantCloseBtn = document.getElementById('assistant-close');
     const assistantCloseFooterBtn = document.getElementById('assistant-close-footer');
@@ -57,12 +84,13 @@ import { Notifier } from './notifications.js';
     const assistantInput = document.getElementById('assistant-input');
     const assistantStatus = document.getElementById('assistant-status');
     const assistantSendBtn = document.getElementById('assistant-send');
+    const assistantVoiceBtn = document.getElementById('assistant-voice');
     const assistantClearBtn = document.getElementById('assistant-clear');
 
     const ASSISTANT_STORE_KEY = 'coordinalia-thread';
     const ASSISTANT_TEXT = {
         es: {
-            prompt: 'Eres CoordinalIA, asistente de Agenda Inteligente. Tono: profesional y cercano, empático y claro. Responde breve, en español, y ayuda a gestionar eventos (crear, listar, reprogramar) con pasos concretos. Si falta la API key, indica de forma amable que se debe configurar DEEPSEEK_API_KEY. Si el usuario pide crear/agendar un evento y tienes título, fecha (YYYY-MM-DD), inicio (HH:mm) y fin (HH:mm), responde con un único bloque JSON plano con la forma {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","description":"...","color":"#2563eb"}. No uses más texto fuera del JSON. Si falta algún dato, pídele al usuario solo ese dato faltante.',
+            prompt: 'Eres CoordinalIA, asistente de Agenda Inteligente. Tono: profesional y cercano, empático y claro. Responde breve, en español, y ayuda a gestionar eventos (crear, listar, reprogramar) con pasos concretos. Si falta la API key, indica de forma amable que se debe configurar una API key (DeepSeek u OpenAI). Si el usuario pide crear/agendar un evento y tienes título, fecha (YYYY-MM-DD), inicio (HH:mm) y fin (HH:mm), responde con un único bloque JSON plano con la forma {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","description":"...","color":"#2563eb"}. No uses más texto fuera del JSON. Si falta algún dato, pídele al usuario solo ese dato faltante.',
             welcome: 'Hola, soy CoordinalIA. Estoy aquí para ayudarte con tu agenda: crear, consultar o reprogramar eventos de forma rápida. ¿En qué te apoyo?',
             noEvents: {
                 today: 'No hay eventos para hoy.',
@@ -76,7 +104,7 @@ import { Notifier } from './notifications.js';
             }
         },
         en: {
-            prompt: 'You are CoordinalIA, assistant of Smart Agenda. Tone: professional yet friendly and clear. Reply briefly in English and help manage events (create, list, reschedule) with concrete steps. If the API key is missing, politely say DEEPSEEK_API_KEY must be configured. If the user asks to create/schedule an event and you have title, date (YYYY-MM-DD), start (HH:mm), end (HH:mm), answer with a single plain JSON block: {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","description":"...","color":"#2563eb"}. Do not add extra text outside JSON. If a field is missing, ask only for that missing field.',
+            prompt: 'You are CoordinalIA, assistant of Smart Agenda. Tone: professional yet friendly and clear. Reply briefly in English and help manage events (create, list, reschedule) with concrete steps. If the API key is missing, politely say an API key (DeepSeek or OpenAI) must be configured. If the user asks to create/schedule an event and you have title, date (YYYY-MM-DD), start (HH:mm), end (HH:mm), answer with a single plain JSON block: {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","description":"...","color":"#2563eb"}. Do not add extra text outside JSON. If a field is missing, ask only for that missing field.',
             welcome: "Hi, I'm CoordinalIA. I can help you create, check, or reschedule events quickly. How can I help?",
             noEvents: {
                 today: 'No events for today.',
@@ -90,7 +118,7 @@ import { Notifier } from './notifications.js';
             }
         },
         pt: {
-            prompt: 'Você é a CoordinalIA, assistente da Agenda Inteligente. Tom: profissional e próximo, claro e empático. Responda de forma breve, em português, ajudando a gerir eventos (criar, listar, reagendar) com passos concretos. Se faltar a API key, avise gentilmente que é preciso configurar DEEPSEEK_API_KEY. Se o usuário pedir para criar/agendar um evento e você tiver título, data (AAAA-MM-DD), início (HH:mm) e fim (HH:mm), responda com um único JSON simples: {"action":"create_event","title":"...","date":"AAAA-MM-DD","start":"HH:mm","end":"HH:mm","description":"...","color":"#2563eb"}. Não adicione texto fora do JSON. Se faltar algum campo, peça apenas esse campo faltante.',
+            prompt: 'Você é a CoordinalIA, assistente da Agenda Inteligente. Tom: profissional e próximo, claro e empático. Responda de forma breve, em português, ajudando a gerir eventos (criar, listar, reagendar) com passos concretos. Se faltar a API key, avise gentilmente que é preciso configurar uma API key (DeepSeek ou OpenAI). Se o usuário pedir para criar/agendar um evento e você tiver título, data (AAAA-MM-DD), início (HH:mm) e fim (HH:mm), responda com um único JSON simples: {"action":"create_event","title":"...","date":"AAAA-MM-DD","start":"HH:mm","end":"HH:mm","description":"...","color":"#2563eb"}. Não adicione texto fora do JSON. Se faltar algum campo, peça apenas esse campo faltante.',
             welcome: 'Olá, sou a CoordinalIA. Posso ajudar a criar, consultar ou reagendar eventos rapidamente. Como posso ajudar?',
             noEvents: {
                 today: 'Sem eventos para hoje.',
@@ -105,11 +133,94 @@ import { Notifier } from './notifications.js';
         }
     };
 
+    const ASSISTANT_CONFIG_KEY = 'coordinalia-config';
+    const ASSISTANT_PROVIDERS = {
+        deepseek: { id: 'deepseek', label: 'DeepSeek' },
+        openai: { id: 'openai', label: 'OpenAI' }
+    };
+
     const assistantMessages = [];
     let assistantUnsubscribe = null;
     let assistantLocale = 'es';
     let assistantStrings = ASSISTANT_TEXT.es;
     let assistantSystemPrompt = assistantStrings.prompt;
+    let assistantProvider = 'deepseek';
+    let assistantProviderBtn = null;
+    let assistantRecognizer = null;
+    let assistantListening = false;
+    let assistantVoiceRetryCount = 0;
+    let assistantVoiceRetryTimer = null;
+    let assistantVoiceStopRequested = false;
+    let assistantRecorder = null;
+    let assistantRecorderChunks = [];
+    let assistantRecorderStream = null;
+    let assistantVoiceMode = 'recognition';
+    const ASSISTANT_VOICE_MAX_RETRIES = 2;
+
+    function tr(key, vars = {}) {
+        return t(assistantLocale, key, vars);
+    }
+
+    function getCurrentIntlLocale() {
+        return getIntlLocale(assistantLocale);
+    }
+
+    function applyI18n() {
+        applyDocumentI18n(document, assistantLocale);
+        if (submitBtn) {
+            submitBtn.textContent = eventIdInput?.value ? tr('form.update') : tr('form.save');
+        }
+        renderAssistantProviderBtn();
+        updateVoiceUi();
+    }
+
+    function loadAssistantConfig() {
+        try {
+            const raw = localStorage.getItem(ASSISTANT_CONFIG_KEY);
+            const parsed = raw ? JSON.parse(raw) : {};
+            const provider = ASSISTANT_PROVIDERS[parsed.provider]?.id || 'deepseek';
+            return { provider };
+        } catch (_e) {
+            return { provider: 'deepseek' };
+        }
+    }
+
+    function saveAssistantConfig(config) {
+        try {
+            localStorage.setItem(ASSISTANT_CONFIG_KEY, JSON.stringify(config));
+        } catch (e) {
+            console.warn('No se pudo guardar la configuración del asistente', e);
+        }
+    }
+
+    function getAssistantConfig() {
+        const cfg = loadAssistantConfig();
+        assistantProvider = cfg.provider;
+        return cfg;
+    }
+
+    function renderAssistantProviderBtn() {
+        if (!assistantProviderBtn) return;
+        assistantProviderBtn.textContent = tr('assistant.providerLabel', { provider: getAssistantProviderLabel() });
+        assistantProviderBtn.title = tr('assistant.providerTitle');
+    }
+
+    async function promptAssistantProvider(force = false) {
+        const current = assistantProvider || 'deepseek';
+        const cfg = getAssistantConfig();
+        if (!force) return { provider: current };
+        const prov = current === 'deepseek' ? 'openai' : 'deepseek';
+        cfg.provider = prov;
+        saveAssistantConfig(cfg);
+        assistantProvider = prov;
+        renderAssistantProviderBtn();
+        return { provider: prov };
+    }
+
+    function getAssistantProviderLabel() {
+        const prov = assistantProvider || 'deepseek';
+        return ASSISTANT_PROVIDERS[prov]?.label || 'DeepSeek';
+    }
 
     document.addEventListener('DOMContentLoaded', init);
 
@@ -122,14 +233,19 @@ import { Notifier } from './notifications.js';
         endInput.value = '10:00';
     setReminderDefault();
 
+    await hydrateAssistantLocale();
+    applyI18n();
+
         startClock();
         try { await notifier.init(); } catch (e) { console.warn('Notifier init failed', e); }
+        notifier.setLocale?.(assistantLocale);
 
     await loadEventsFromStore();
     renderAll();
     try { notifier.rescheduleAll(getEvents()); } catch (e) { console.warn('Reschedule failed', e); }
 
-    await hydrateAssistantLocale();
+    getAssistantConfig();
+    renderAssistantProviderBtn();
     loadAssistantHistory();
 
         form.addEventListener('submit', handleSubmit);
@@ -141,9 +257,48 @@ import { Notifier } from './notifications.js';
         monthlyPrevBtn?.addEventListener('click', () => shiftBaseDateMonths(-1));
         monthlyNextBtn?.addEventListener('click', () => shiftBaseDateMonths(1));
     reminderSelect?.addEventListener('change', handleReminderChange);
+        autoStartToggle?.addEventListener('change', handleAutoStartToggle);
 
         hydrateVersion();
+        hydrateAutoStart();
         setupAssistantModal();
+    }
+
+    async function hydrateAutoStart() {
+        if (!autoStartToggle || !window.appBridge?.getAutoStartStatus) return;
+        autoStartToggle.disabled = true;
+        try {
+            const status = await window.appBridge.getAutoStartStatus();
+            const supported = !!status?.supported;
+            autoStartToggle.checked = !!status?.enabled;
+            autoStartToggle.disabled = !supported;
+            autoStartToggle.title = supported
+                ? tr('header.autoStart')
+                : tr('app.unavailable');
+        } catch (e) {
+            console.warn('No se pudo leer estado de inicio automático', e);
+            autoStartToggle.disabled = true;
+            autoStartToggle.title = tr('app.unavailable');
+        }
+    }
+
+    async function handleAutoStartToggle() {
+        if (!autoStartToggle || !window.appBridge?.setAutoStartEnabled) return;
+        const desired = !!autoStartToggle.checked;
+        autoStartToggle.disabled = true;
+        try {
+            const result = await window.appBridge.setAutoStartEnabled(desired);
+            autoStartToggle.checked = !!result?.enabled;
+            autoStartToggle.disabled = !result?.supported;
+            setStatus(result?.enabled
+                ? tr('form.statusAutoStartOn')
+                : tr('form.statusAutoStartOff'), 'muted');
+        } catch (e) {
+            console.warn('No se pudo actualizar inicio automático', e);
+            autoStartToggle.checked = !desired;
+            autoStartToggle.disabled = false;
+            setStatus(tr('form.statusAutoStartFail'), 'danger');
+        }
     }
 
     // Crear o actualizar eventos desde el formulario.
@@ -158,11 +313,11 @@ import { Notifier } from './notifications.js';
             if (index !== -1) {
                 events[index] = payload;
             }
-            setStatus('Evento actualizado', 'success');
+            setStatus(tr('form.statusEventUpdated'), 'success');
         } else {
             payload.id = generateId();
             events.push(payload);
-            setStatus('Evento guardado', 'success');
+            setStatus(tr('form.statusEventSaved'), 'success');
         }
         saveEvents(events);
         resetForm();
@@ -200,7 +355,7 @@ import { Notifier } from './notifications.js';
     function resetForm() {
         form.reset();
         eventIdInput.value = '';
-        submitBtn.textContent = 'Guardar evento';
+        submitBtn.textContent = tr('form.save');
         setStatus('');
         setReminderDefault();
     }
@@ -218,12 +373,12 @@ import { Notifier } from './notifications.js';
     if (reminderSeconds === null) return null;
 
         if (!title || !date || !start || !end) {
-            setStatus('Completa título, fecha y horas.', 'danger');
+            setStatus(tr('form.statusRequired'), 'danger');
             return null;
         }
 
         if (end <= start) {
-            setStatus('La hora de fin debe ser posterior a la de inicio.', 'danger');
+            setStatus(tr('form.statusEndAfterStart'), 'danger');
             return null;
         }
 
@@ -318,7 +473,7 @@ import { Notifier } from './notifications.js';
         if (!dailySlotsEl) return;
         const base = parseLocalDate(baseDateInput.value);
         if (!base || Number.isNaN(base)) return;
-        if (dailyCaption) dailyCaption.textContent = base.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        if (dailyCaption) dailyCaption.textContent = base.toLocaleDateString(getCurrentIntlLocale(), { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
         const slots = buildSlots(8, 20);
         dailySlotsEl.innerHTML = '';
@@ -364,13 +519,13 @@ import { Notifier } from './notifications.js';
             const column = document.createElement('div');
             column.className = 'week-day';
             column.innerHTML = `
-                <div class="week-day__label">${day.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}</div>
+                <div class="week-day__label">${day.toLocaleDateString(getCurrentIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short' })}</div>
                 <div class="week-day__events"></div>
             `;
 
             const list = column.querySelector('.week-day__events');
             if (!dayEvents.length) {
-                list.innerHTML = '<p class="muted">Sin eventos</p>';
+                list.innerHTML = `<p class="muted">${tr('calendar.noEvents')}</p>`;
             } else {
                 dayEvents.forEach(ev => {
                     const item = document.createElement('div');
@@ -396,7 +551,7 @@ import { Notifier } from './notifications.js';
         if (!base || Number.isNaN(base)) return;
         const startMonth = new Date(base.getFullYear(), base.getMonth(), 1);
         const endMonth = new Date(base.getFullYear(), base.getMonth() + 1, 0);
-        if (monthlyCaption) monthlyCaption.textContent = startMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+    if (monthlyCaption) monthlyCaption.textContent = startMonth.toLocaleDateString(getCurrentIntlLocale(), { month: 'long', year: 'numeric' });
 
         monthlyGridEl.innerHTML = '';
         for (let d = 1; d <= endMonth.getDate(); d++) {
@@ -407,7 +562,7 @@ import { Notifier } from './notifications.js';
             cell.innerHTML = `
                 <div class="month-day__header">
                     <span>${d}</span>
-                    <span class="muted">${day.toLocaleDateString('es-ES', { weekday: 'short' })}</span>
+                    <span class="muted">${day.toLocaleDateString(getCurrentIntlLocale(), { weekday: 'short' })}</span>
                 </div>
                 <div class="month-day__events"></div>
             `;
@@ -432,7 +587,7 @@ import { Notifier } from './notifications.js';
         if (!eventListEl) return;
         eventListEl.innerHTML = '';
         if (!events.length) {
-            eventListEl.innerHTML = '<p class="muted">No hay eventos aún. Crea el primero.</p>';
+            eventListEl.innerHTML = `<p class="muted">${tr('list.empty')}</p>`;
             return;
         }
 
@@ -445,13 +600,13 @@ import { Notifier } from './notifications.js';
                 </div>
                 <div class="event-card__meta">
                     <span class="event-card__color" style="background:${ev.color}"></span>
-                    <span>${formatReadableDate(ev.date)}</span>
+                    <span>${formatReadableDate(ev.date, getCurrentIntlLocale())}</span>
                     <span>${ev.start} - ${ev.end}</span>
                     ${ev.description ? `<span class="badge">${ev.description}</span>` : ''}
                 </div>
                 <div class="event-card__actions">
-                    <button class="btn btn--ghost" data-action="edit">Editar</button>
-                    <button class="btn btn--ghost" data-action="delete">Eliminar</button>
+                    <button class="btn btn--ghost" data-action="edit">${tr('list.edit')}</button>
+                    <button class="btn btn--ghost" data-action="delete">${tr('list.delete')}</button>
                 </div>
             `;
 
@@ -467,7 +622,7 @@ import { Notifier } from './notifications.js';
         saveEvents(filtered);
         renderAll();
         try { notifier.cancelFor(id); } catch (e) { console.warn('Cancel failed', e); }
-        setStatus('Evento eliminado');
+        setStatus(tr('form.statusEventDeleted'));
     }
 
     // Carga un evento existente en el formulario para editarlo.
@@ -480,8 +635,8 @@ import { Notifier } from './notifications.js';
         colorInput.value = ev.color;
         eventIdInput.value = ev.id;
         applyReminderToForm(ev.reminder_offset);
-        submitBtn.textContent = 'Actualizar evento';
-        setStatus('Editando evento. Guarda o cancela.', 'muted');
+        submitBtn.textContent = tr('form.update');
+        setStatus(tr('form.statusEditing'), 'muted');
     }
 
     function handleReminderChange() {
@@ -510,7 +665,7 @@ import { Notifier } from './notifications.js';
         if (value === 'custom') {
             const minutes = parseInt(reminderCustomInput.value, 10);
             if (Number.isFinite(minutes) && minutes > 0) return minutes * 60;
-            setStatus('Ingresa minutos válidos para el recordatorio.', 'danger');
+            setStatus(tr('form.statusReminderInvalid'), 'danger');
             return null;
         }
         const minutes = parseInt(value, 10);
@@ -538,91 +693,6 @@ import { Notifier } from './notifications.js';
         return map[target] || target;
     }
 
-    // Construye slots horarios (por defecto de 08:00 a 20:00).
-    function buildSlots(startHour = 8, endHour = 20, slotDuration = 60) {
-        const slots = [];
-        for (let h = startHour; h < endHour; h++) {
-            const from = `${String(h).padStart(2, '0')}:00`;
-            const to = `${String(h + 1).padStart(2, '0')}:00`;
-            slots.push({ start: from, end: to, label: `${from} - ${to}` });
-        }
-        return slots;
-    }
-
-    // Determina si un evento cae dentro de un slot horario.
-    function isInSlot(event, slot) {
-        return event.start >= slot.start && event.start < slot.end;
-    }
-
-    // Compara fechas (YYYY-MM-DD) ignorando hora.
-    function sameDate(dateStr, dateObj) {
-        const compare = typeof dateObj === 'string' ? parseLocalDate(dateObj) : dateObj;
-        return dateStr === formatISODate(compare);
-    }
-
-    // Formatea a cadena ISO corta, corrigiendo timezone local.
-    function formatISODate(date) {
-        return new Date(date.getFullYear(), date.getMonth(), date.getDate())
-            .toISOString()
-            .split('T')[0];
-    }
-
-    // Fecha legible en español.
-    function formatReadableDate(dateStr) {
-        const d = parseLocalDate(dateStr);
-        return d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-    }
-
-    // Devuelve el lunes de la semana de una fecha dada.
-    function startOfWeek(date) {
-        const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-        const day = d.getDay();
-        const diff = (day === 0 ? -6 : 1) - day; // lunes como inicio
-        d.setDate(d.getDate() + diff);
-        return d;
-    }
-
-    // Suma días a una fecha.
-    function addDays(date, days) {
-        const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-        d.setDate(d.getDate() + days);
-        return d;
-    }
-
-    function addMonths(date, months) {
-        const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-        d.setMonth(d.getMonth() + months);
-        return d;
-    }
-
-    // Ordena eventos por fecha y hora de inicio.
-    function sortEvents(events) {
-        return [...events].sort((a, b) => {
-            if (a.date === b.date) return a.start.localeCompare(b.start);
-            return a.date.localeCompare(b.date);
-        });
-    }
-
-    // Genera un id único con fallback si randomUUID no está disponible (WebView antiguos).
-    function generateId() {
-        if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
-        return 'ev-' + Math.random().toString(16).slice(2) + Date.now().toString(16);
-    }
-
-    function normalizeLocale(locale) {
-        const lc = (locale || '').toLowerCase();
-        if (lc.startsWith('en')) return 'en';
-        if (lc.startsWith('pt')) return 'pt';
-        return 'es';
-    }
-
-    function detectAssistantRange(text = '') {
-        const t = text.toLowerCase();
-        if (/(hoy|today|hoje)\b/.test(t)) return 'today';
-        if (/(semana|week|semana)/.test(t)) return 'week';
-        if (/(mes|mes\s|month|mês|m\u00eas)/.test(t)) return 'month';
-        return null;
-    }
 
     function getEventsByRange(range) {
         const events = sortEvents(getEvents());
@@ -658,9 +728,9 @@ import { Notifier } from './notifications.js';
         const headers = assistantStrings.headers;
         const noEvents = assistantStrings.noEvents;
         if (!list.length) {
-            return (noEvents && noEvents[range]) || 'Sin eventos.';
+            return (noEvents && noEvents[range]) || tr('calendar.noEvents');
         }
-        const title = (headers && headers[range]) || 'Eventos:';
+        const title = (headers && headers[range]) || tr('assistant.eventsTitle');
         const lines = list.map(ev => {
             const desc = ev.description ? ` — ${ev.description}` : '';
             return `- ${ev.date} ${ev.start}-${ev.end} ${ev.title}${desc}`;
@@ -672,7 +742,7 @@ import { Notifier } from './notifications.js';
         if (!clockEl) return;
         const update = () => {
             const now = new Date();
-            clockEl.textContent = now.toLocaleTimeString('es-ES', { hour12: false });
+            clockEl.textContent = now.toLocaleTimeString(getCurrentIntlLocale(), { hour12: false });
         };
         update();
         setInterval(update, 1000);
@@ -694,11 +764,14 @@ import { Notifier } from './notifications.js';
             assistantLocale = normalizeLocale(detected);
             assistantStrings = ASSISTANT_TEXT[assistantLocale] || ASSISTANT_TEXT.es;
             assistantSystemPrompt = assistantStrings.prompt;
+            notifier.setLocale?.(assistantLocale);
         } catch (e) {
             assistantLocale = 'es';
             assistantStrings = ASSISTANT_TEXT.es;
             assistantSystemPrompt = assistantStrings.prompt;
+            notifier.setLocale?.('es');
         }
+        applyI18n();
     }
 
     function loadAssistantHistory() {
@@ -735,6 +808,23 @@ import { Notifier } from './notifications.js';
         const closeButtons = [assistantCloseBtn, assistantCloseFooterBtn];
         const backdrop = assistantModal.querySelector('[data-dismiss="assistant"]');
 
+        // Botón para alternar proveedor dentro del título del modal
+        const titleGroup = assistantModal.querySelector('.modal__title-group');
+        if (titleGroup) {
+            let existing = titleGroup.querySelector('#assistant-provider');
+            assistantProviderBtn = existing;
+            if (!assistantProviderBtn) {
+                assistantProviderBtn = document.createElement('button');
+                assistantProviderBtn.type = 'button';
+                assistantProviderBtn.id = 'assistant-provider';
+                assistantProviderBtn.className = 'btn btn--ghost';
+                assistantProviderBtn.style.marginLeft = '0.5rem';
+                titleGroup.appendChild(assistantProviderBtn);
+            }
+            assistantProviderBtn.addEventListener('click', () => promptAssistantProvider(true));
+            renderAssistantProviderBtn();
+        }
+
         assistantOpenBtn.addEventListener('click', openAssistantModal);
         closeButtons.forEach(btn => btn?.addEventListener('click', closeAssistantModal));
         backdrop?.addEventListener('click', closeAssistantModal);
@@ -746,7 +836,271 @@ import { Notifier } from './notifications.js';
         });
 
         assistantForm?.addEventListener('submit', handleAssistantSubmit);
+        setupAssistantVoice();
         assistantClearBtn?.addEventListener('click', clearAssistantThread);
+    }
+
+    function setupAssistantVoice() {
+        if (!assistantVoiceBtn) return;
+
+        if (!hasVoiceRecognitionSupport(window)) {
+            assistantVoiceBtn.disabled = true;
+            assistantVoiceBtn.title = tr('assistant.voiceUnsupported');
+            return;
+        }
+
+        assistantVoiceBtn.addEventListener('click', toggleAssistantVoice);
+        updateVoiceUi();
+    }
+
+    function createAssistantRecognizer() {
+        const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognitionCtor) return null;
+        const rec = new SpeechRecognitionCtor();
+        rec.lang = getVoiceLang(assistantLocale);
+        rec.interimResults = false;
+        rec.continuous = false;
+        rec.maxAlternatives = 1;
+
+        rec.onstart = () => {
+            assistantListening = true;
+            setAssistantStatus(tr('assistant.listening'));
+            updateVoiceUi();
+        };
+
+        rec.onend = () => {
+            assistantListening = false;
+            updateVoiceUi();
+        };
+
+        rec.onerror = (event) => {
+            const code = event?.error || 'unknown';
+            const isNetworkError = code === 'network';
+
+            if (isNetworkError && !assistantVoiceStopRequested && assistantVoiceRetryCount < ASSISTANT_VOICE_MAX_RETRIES) {
+                assistantVoiceRetryCount += 1;
+                const waitMs = 700 * assistantVoiceRetryCount;
+                setAssistantStatus(tr('assistant.networkRetry', {
+                    current: assistantVoiceRetryCount,
+                    max: ASSISTANT_VOICE_MAX_RETRIES,
+                }));
+                clearTimeout(assistantVoiceRetryTimer);
+                assistantVoiceRetryTimer = setTimeout(() => {
+                    startAssistantVoiceRecognition({ fromRetry: true });
+                }, waitMs);
+                return;
+            }
+
+            if (isNetworkError && !assistantVoiceStopRequested) {
+                setAssistantStatus(tr('assistant.voiceServiceFallback'));
+                assistantVoiceMode = 'recorder';
+                assistantListening = false;
+                updateVoiceUi();
+                startVoiceRecorderFlow();
+                return;
+            }
+
+            const msg = mapVoiceErrorCode(code, assistantLocale);
+            setAssistantStatus(msg);
+            assistantListening = false;
+            updateVoiceUi();
+        };
+
+        rec.onresult = (event) => {
+            const transcriptRaw = event?.results?.[0]?.[0]?.transcript || '';
+            const transcript = cleanVoiceTranscript(transcriptRaw);
+            if (!transcript) {
+                setAssistantStatus(tr('assistant.transcriptFailed'));
+                return;
+            }
+            if (assistantInput) assistantInput.value = transcript;
+            submitAssistantFromVoice();
+        };
+
+        return rec;
+    }
+
+    function submitAssistantFromVoice() {
+        setAssistantStatus(tr('assistant.textCapturedPreparing'));
+        setTimeout(() => {
+            if (!assistantInput?.value?.trim()) {
+                setAssistantStatus(tr('assistant.textMissing'));
+                return;
+            }
+            setAssistantStatus(tr('assistant.textCapturedSending'));
+            assistantForm?.requestSubmit?.();
+        }, 650);
+    }
+
+    async function ensureAssistantMicrophonePermission() {
+        if (!navigator?.mediaDevices?.getUserMedia) return true;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach(track => track.stop());
+            return true;
+        } catch (e) {
+            const code = e?.name === 'NotAllowedError' ? 'not-allowed'
+                : e?.name === 'NotFoundError' ? 'audio-capture'
+                    : 'unknown';
+            setAssistantStatus(mapVoiceErrorCode(code, assistantLocale));
+            return false;
+        }
+    }
+
+    function startAssistantVoiceRecognition({ fromRetry = false } = {}) {
+        if (!assistantRecognizer) {
+            assistantRecognizer = createAssistantRecognizer();
+        }
+        if (!assistantRecognizer) {
+            setAssistantStatus(tr('assistant.recognitionUnavailable'));
+            return;
+        }
+
+        assistantRecognizer.lang = getVoiceLang(assistantLocale);
+        try {
+            assistantRecognizer.start();
+            if (!fromRetry) {
+                setAssistantStatus(tr('assistant.listening'));
+            }
+        } catch (e) {
+            console.warn('No se pudo iniciar reconocimiento de voz', e);
+            setAssistantStatus(tr('assistant.recognitionStartFailed'));
+        }
+    }
+
+    async function toggleAssistantVoice() {
+        if (!assistantVoiceBtn) return;
+        if (assistantListening) {
+            assistantVoiceStopRequested = true;
+            clearTimeout(assistantVoiceRetryTimer);
+            if (assistantVoiceMode === 'recorder') {
+                stopVoiceRecorderFlow();
+                return;
+            }
+            assistantRecognizer?.stop?.();
+            return;
+        }
+
+        if (navigator && 'onLine' in navigator && !navigator.onLine) {
+            setAssistantStatus(tr('assistant.offline'));
+            return;
+        }
+
+        const micReady = await ensureAssistantMicrophonePermission();
+        if (!micReady) {
+            updateVoiceUi();
+            return;
+        }
+
+        assistantVoiceStopRequested = false;
+        assistantVoiceRetryCount = 0;
+        clearTimeout(assistantVoiceRetryTimer);
+
+        if (assistantVoiceMode === 'recorder') {
+            startVoiceRecorderFlow();
+            return;
+        }
+
+        startAssistantVoiceRecognition({ fromRetry: false });
+    }
+
+    async function startVoiceRecorderFlow() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            assistantRecorderStream = stream;
+            assistantRecorderChunks = [];
+
+            const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                ? 'audio/webm;codecs=opus'
+                : 'audio/webm';
+            assistantRecorder = new MediaRecorder(stream, { mimeType });
+
+            assistantRecorder.ondataavailable = (evt) => {
+                if (evt?.data && evt.data.size > 0) {
+                    assistantRecorderChunks.push(evt.data);
+                }
+            };
+
+            assistantRecorder.onstop = async () => {
+                try {
+                    const blob = new Blob(assistantRecorderChunks, { type: assistantRecorder.mimeType || 'audio/webm' });
+                    if (!blob.size) {
+                        setAssistantStatus(tr('assistant.noAudioCaptured'));
+                        return;
+                    }
+
+                    setAssistantStatus(tr('assistant.transcribing'));
+                    const buffer = await blob.arrayBuffer();
+                    const cfg = getAssistantConfig();
+                    const transcript = await window.appBridge?.transcribeAudio?.({
+                        provider: cfg.provider,
+                        language: getVoiceLang(assistantLocale),
+                        mimeType: blob.type || 'audio/webm',
+                        audioBuffer: buffer,
+                    });
+
+                    const text = cleanVoiceTranscript(transcript || '');
+                    if (!text) {
+                        setAssistantStatus(tr('assistant.transcriptFailed'));
+                        return;
+                    }
+
+                    if (assistantInput) assistantInput.value = text;
+                    submitAssistantFromVoice();
+                } catch (e) {
+                    console.warn('Fallo transcripción de audio', e);
+                    const msg = /NO_STT_API_KEY|OPENAI_API_KEY/i.test(e?.message || '')
+                        ? tr('assistant.transcribeApiKey')
+                        : /STT error/i.test(e?.message || '')
+                            ? tr('assistant.transcribeError', { error: (e.message || '').slice(0, 120) })
+                            : tr('assistant.transcribeRecordedFail');
+                    setAssistantStatus(msg);
+                } finally {
+                    assistantListening = false;
+                    updateVoiceUi();
+                    stopRecorderTracks();
+                }
+            };
+
+            assistantRecorder.start();
+            assistantListening = true;
+            setAssistantStatus(tr('assistant.recording'));
+            updateVoiceUi();
+        } catch (e) {
+            console.warn('No se pudo iniciar grabación de voz', e);
+            setAssistantStatus(tr('assistant.recordingStartFailed'));
+            assistantListening = false;
+            updateVoiceUi();
+            stopRecorderTracks();
+        }
+    }
+
+    function stopRecorderTracks() {
+        if (assistantRecorderStream) {
+            assistantRecorderStream.getTracks().forEach(t => t.stop());
+            assistantRecorderStream = null;
+        }
+    }
+
+    function stopVoiceRecorderFlow() {
+        if (assistantRecorder && assistantRecorder.state !== 'inactive') {
+            assistantRecorder.stop();
+        } else {
+            assistantListening = false;
+            updateVoiceUi();
+            stopRecorderTracks();
+        }
+    }
+
+    function updateVoiceUi() {
+        if (!assistantVoiceBtn) return;
+        assistantVoiceBtn.classList.toggle('is-listening', assistantListening);
+        assistantVoiceBtn.textContent = assistantListening ? tr('assistant.voiceButtonStop') : tr('assistant.voiceButton');
+        assistantVoiceBtn.title = assistantListening
+            ? tr('assistant.voiceButtonStop')
+            : assistantVoiceMode === 'recorder'
+                ? tr('assistant.voiceRecorderMode')
+                : tr('assistant.voiceTitle');
     }
 
     function openAssistantModal() {
@@ -762,6 +1116,10 @@ import { Notifier } from './notifications.js';
     }
 
     function closeAssistantModal() {
+        assistantVoiceStopRequested = true;
+        clearTimeout(assistantVoiceRetryTimer);
+        stopVoiceRecorderFlow();
+        if (assistantListening) assistantRecognizer?.stop?.();
         assistantModal.classList.add('is-hidden');
         assistantOpenBtn?.focus();
     }
@@ -782,7 +1140,7 @@ import { Notifier } from './notifications.js';
 
         appendAssistantMessage({ role: 'user', content: text });
         assistantInput.value = '';
-        setAssistantStatus('Enviando...');
+    setAssistantStatus(tr('assistant.sending'));
         setAssistantBusy(true);
 
         // Consulta rápida local: eventos de hoy/semana/mes
@@ -797,14 +1155,17 @@ import { Notifier } from './notifications.js';
             return;
         }
 
+        const cfg = getAssistantConfig();
+
         const messagesForApi = buildAssistantPayload();
         try {
             const requestId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
             const assistantMsg = { role: 'assistant', content: '', requestId };
             appendAssistantMessage(assistantMsg);
+            let safetyTimer = null;
 
             if (!window.appBridge?.chatStream) {
-                throw new Error('Disponible solo en la app de escritorio (Electron)');
+                throw new Error(tr('assistant.desktopOnly'));
             }
 
             // Suscribir a los chunks de streaming
@@ -814,27 +1175,65 @@ import { Notifier } from './notifications.js';
                 if (data.delta) {
                     assistantMsg.content += data.delta;
                     renderAssistantMessages();
+                } else if (typeof data.content === 'string' && data.content.length > assistantMsg.content.length) {
+                    // Fallback cuando el proveedor envía el texto completo en cada chunk
+                    assistantMsg.content = data.content;
+                    renderAssistantMessages();
                 }
                 if (data.done) {
                     setAssistantStatus('');
                     setAssistantBusy(false);
                     assistantUnsubscribe?.();
+                    assistantUnsubscribe = null;
+                    if (safetyTimer) clearTimeout(safetyTimer);
                 }
+                scrollAssistantBottom();
             });
 
-            const finalReply = await window.appBridge.chatStream(messagesForApi, requestId);
+            // Cortafuegos por si el streaming no termina nunca
+            safetyTimer = setTimeout(() => {
+                setAssistantStatus(tr('assistant.noResponse'));
+                setAssistantBusy(false);
+                assistantUnsubscribe?.();
+                assistantUnsubscribe = null;
+                scrollAssistantBottom();
+            }, 45000);
+
+            let finalReply = '';
+            try {
+                finalReply = await window.appBridge.chatStream({
+                    messages: messagesForApi,
+                    requestId,
+                    provider: cfg.provider
+                });
+            } catch (streamErr) {
+                console.error('assistant stream failed, fallback to non-stream', streamErr);
+                setAssistantStatus(tr('assistant.streamFallback'));
+                // Fallback sin streaming para no dejar colgado el UI
+                finalReply = await window.appBridge.chat({
+                    messages: messagesForApi,
+                    provider: cfg.provider,
+                    retry: true
+                });
+            }
+
+            if (safetyTimer) clearTimeout(safetyTimer);
             if (!assistantMsg.content) {
-                assistantMsg.content = finalReply || 'Sin respuesta del asistente.';
+                assistantMsg.content = finalReply || tr('assistant.noResponse');
                 renderAssistantMessages();
             }
             handleAssistantAction(assistantMsg.content);
             setAssistantStatus('');
         } catch (err) {
             console.error('assistant error', err);
-            const msg = err?.message || 'Error al contactar el asistente';
+            const rawMsg = err?.message || tr('assistant.contactError');
+            const msg = /NO_API_KEY|Falta API key/i.test(rawMsg)
+                ? tr('assistant.missingApiKey')
+                : rawMsg;
             appendAssistantMessage({ role: 'assistant', content: `⚠️ ${msg}` });
             setAssistantStatus(msg);
         } finally {
+            assistantUnsubscribe = null;
             setAssistantBusy(false);
             scrollAssistantBottom();
         }
@@ -871,7 +1270,7 @@ import { Notifier } from './notifications.js';
         const action = extractAssistantAction(content);
         if (!action || action.action !== 'create_event') return;
 
-        const validation = validateEventPayload(action);
+        const validation = validateEventPayload(action, assistantLocale);
         if (!validation.ok) {
             appendAssistantMessage({ role: 'assistant', content: validation.error });
             return;
@@ -884,64 +1283,18 @@ import { Notifier } from './notifications.js';
         renderAll();
         try { notifier.scheduleFor(evt); } catch (e) { console.warn('Schedule failed', e); }
 
-        const confirmText = assistantLocale === 'en'
-            ? `Event created: ${evt.title} on ${evt.date} ${evt.start}-${evt.end}.`
-            : assistantLocale === 'pt'
-                ? `Evento criado: ${evt.title} em ${evt.date} ${evt.start}-${evt.end}.`
-                : `Evento creado: ${evt.title} el ${evt.date} ${evt.start}-${evt.end}.`;
+        const confirmText = tr('assistant.eventCreated', {
+            title: evt.title,
+            date: evt.date,
+            start: evt.start,
+            end: evt.end,
+        });
         appendAssistantMessage({ role: 'assistant', content: confirmText });
-    }
 
-    function extractAssistantAction(content = '') {
-        const match = content.match(/\{[\s\S]*\}/);
-        if (!match) return null;
-        try {
-            return JSON.parse(match[0]);
-        } catch (e) {
-            return null;
+        if (validation?.data?.autoCompletedEnd) {
+            const autoText = tr('assistant.autoEnd', { end: evt.end });
+            appendAssistantMessage({ role: 'assistant', content: autoText });
         }
-    }
-
-    function validateEventPayload(obj = {}) {
-        const errors = [];
-        const title = (obj.title || '').trim();
-        const date = (obj.date || '').trim();
-        const start = (obj.start || '').trim();
-        const end = (obj.end || '').trim();
-        const description = (obj.description || '').trim();
-        const color = (obj.color || '#2563eb').trim();
-
-        if (!title) errors.push('Falta título.');
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) errors.push('Fecha inválida (YYYY-MM-DD).');
-        if (!/^\d{2}:\d{2}$/.test(start)) errors.push('Hora de inicio inválida (HH:MM).');
-        if (!/^\d{2}:\d{2}$/.test(end)) errors.push('Hora de fin inválida (HH:MM).');
-        if (start && end && end <= start) errors.push('La hora de fin debe ser posterior a la de inicio.');
-
-        if (errors.length) {
-            return { ok: false, error: errors.join(' ') };
-        }
-        const reminder_offset = normalizeReminderOffset(obj.reminder_offset);
-        return { ok: true, data: { title, date, start, end, description, color, reminder_offset } };
-    }
-
-    function toEventPayload(data) {
-        const reminder_offset = normalizeReminderOffset(data.reminder_offset);
-        return {
-            id: generateId(),
-            title: data.title,
-            date: data.date,
-            start: data.start,
-            end: data.end,
-            description: data.description || '',
-            color: data.color || '#2563eb',
-            reminder_offset
-        };
-    }
-
-    function normalizeReminderOffset(value) {
-        const num = Number(value);
-        if (Number.isFinite(num) && num >= 0) return num;
-        return 600; // 10 minutos por defecto
     }
 
     function buildAssistantContext() {
@@ -961,7 +1314,7 @@ import { Notifier } from './notifications.js';
             const desc = ev.description ? ` — ${ev.description}` : '';
             return `- ${ev.date} ${ev.start}-${ev.end} ${ev.title}${desc}`;
         });
-        return 'Contexto de agenda (máx 5 próximos):\n' + lines.join('\n');
+        return `Agenda context (max 5 upcoming):\n${lines.join('\n')}`;
     }
 
     function setAssistantStatus(text) {
@@ -971,6 +1324,7 @@ import { Notifier } from './notifications.js';
     function setAssistantBusy(isBusy) {
         if (assistantSendBtn) assistantSendBtn.disabled = isBusy;
         if (assistantInput) assistantInput.disabled = isBusy;
+        if (assistantVoiceBtn) assistantVoiceBtn.disabled = isBusy;
     }
 
     function scrollAssistantBottom() {

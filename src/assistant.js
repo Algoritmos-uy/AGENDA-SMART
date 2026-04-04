@@ -1,10 +1,27 @@
 const fs = require('fs');
 const path = require('path');
+const { normalizeMessages } = require('./assistantGuards');
+const telemetry = require('./assistantTelemetry');
 
 loadLocalEnv();
 
-const DEFAULT_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
-const API_URL = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions';
+const PROVIDERS = {
+  deepseek: {
+    id: 'deepseek',
+    envKey: 'DEEPSEEK_API_KEY',
+    defaultModel: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+    defaultUrl: process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions',
+  },
+  openai: {
+    id: 'openai',
+    envKey: 'OPENAI_API_KEY',
+    defaultModel: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
+    defaultUrl: process.env.OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions',
+  },
+};
+
+const OPENAI_TRANSCRIBE_URL = process.env.OPENAI_TRANSCRIBE_API_URL || 'https://api.openai.com/v1/audio/transcriptions';
+const OPENAI_TRANSCRIBE_MODEL = process.env.OPENAI_STT_MODEL || 'gpt-4o-mini-transcribe';
 
 function loadLocalEnv() {
   const candidates = [
@@ -35,27 +52,65 @@ function loadLocalEnv() {
   }
 }
 
-async function callAssistant(messages = []) {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) {
-    const err = new Error('Falta DEEPSEEK_API_KEY');
+function resolveProviderConfig({ provider = 'deepseek', model, apiUrl } = {}) {
+  const providerKey = PROVIDERS[provider] ? provider : 'deepseek';
+  const cfg = PROVIDERS[providerKey];
+  const resolvedKey = process.env[cfg.envKey];
+  if (!resolvedKey) {
+    const err = new Error(`Falta API key para ${providerKey}`);
     err.code = 'NO_API_KEY';
     throw err;
   }
+  return {
+    provider: providerKey,
+    apiKey: resolvedKey,
+    model: model || cfg.defaultModel,
+    apiUrl: apiUrl || cfg.defaultUrl,
+  };
+}
+
+function resolveTranscribeConfig() {
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (!openaiKey) {
+    const err = new Error('Falta OPENAI_API_KEY para transcripción de voz');
+    err.code = 'NO_STT_API_KEY';
+    throw err;
+  }
+
+  return {
+    provider: 'openai',
+    apiKey: openaiKey,
+    apiUrl: OPENAI_TRANSCRIBE_URL,
+    model: OPENAI_TRANSCRIBE_MODEL,
+  };
+}
+
+async function callAssistant(messages = [], options = {}) {
+  const { apiKey, model, apiUrl, provider } = resolveProviderConfig(options);
+  const retry = !!options?.retry;
+  const safeMessages = normalizeMessages(messages);
+  const totalChars = safeMessages.reduce((acc, m) => acc + m.content.length, 0);
+  const attempt = telemetry.beginAttempt({
+    provider,
+    mode: 'chat',
+    messageCount: safeMessages.length,
+    totalChars,
+    retry,
+  });
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
 
   try {
-    const res = await fetch(API_URL, {
+  const res = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: DEFAULT_MODEL,
-        messages,
+        model,
+        messages: safeMessages,
         temperature: 0.3,
         stream: false,
       }),
@@ -64,7 +119,7 @@ async function callAssistant(messages = []) {
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      const err = new Error(`DeepSeek error ${res.status}: ${text}`);
+      const err = new Error(`${provider} error ${res.status}: ${text}`);
       err.code = 'API_ERROR';
       throw err;
     }
@@ -76,33 +131,42 @@ async function callAssistant(messages = []) {
       err.code = 'EMPTY_RESPONSE';
       throw err;
     }
+    telemetry.succeedAttempt(attempt, { outputChars: content.length });
     return content;
+  } catch (error) {
+    telemetry.failAttempt(attempt, error);
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
 }
 
-async function callAssistantStream(messages = [], { onChunk } = {}) {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) {
-    const err = new Error('Falta DEEPSEEK_API_KEY');
-    err.code = 'NO_API_KEY';
-    throw err;
-  }
+async function callAssistantStream(messages = [], { onChunk, ...options } = {}) {
+  const { apiKey, model, apiUrl, provider } = resolveProviderConfig(options);
+  const retry = !!options?.retry;
+  const safeMessages = normalizeMessages(messages);
+  const totalChars = safeMessages.reduce((acc, m) => acc + m.content.length, 0);
+  const attempt = telemetry.beginAttempt({
+    provider,
+    mode: 'stream',
+    messageCount: safeMessages.length,
+    totalChars,
+    retry,
+  });
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
 
   try {
-    const res = await fetch(API_URL, {
+  const res = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: DEFAULT_MODEL,
-        messages,
+        model,
+        messages: safeMessages,
         temperature: 0.3,
         stream: true,
       }),
@@ -111,7 +175,7 @@ async function callAssistantStream(messages = [], { onChunk } = {}) {
 
     if (!res.ok || !res.body) {
       const text = await res.text().catch(() => '');
-      const err = new Error(`DeepSeek error ${res.status}: ${text}`);
+      const err = new Error(`${provider} error ${res.status}: ${text}`);
       err.code = 'API_ERROR';
       throw err;
     }
@@ -120,9 +184,13 @@ async function callAssistantStream(messages = [], { onChunk } = {}) {
     const decoder = new TextDecoder('utf-8');
     let full = '';
 
-    while (true) {
+    let reading = true;
+    while (reading) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        reading = false;
+        continue;
+      }
       const chunk = decoder.decode(value, { stream: true });
       const lines = chunk.split('\n').map(l => l.trim()).filter(Boolean);
       for (const line of lines) {
@@ -130,27 +198,101 @@ async function callAssistantStream(messages = [], { onChunk } = {}) {
         const payload = line.replace(/^data:\s*/, '');
         if (payload === '[DONE]') {
           onChunk?.({ done: true, content: full });
+          telemetry.succeedAttempt(attempt, { outputChars: full.length });
           return full;
         }
         try {
           const json = JSON.parse(payload);
-          const delta = json?.choices?.[0]?.delta?.content || '';
+          const choice = json?.choices?.[0];
+          const delta = choice?.delta?.content || choice?.message?.content || choice?.text || '';
           if (delta) {
             full += delta;
             onChunk?.({ delta, content: full });
           }
-        } catch (e) {
-          // Ignorar errores de parseo individuales
+        } catch (_e) {
+          // Si no es JSON válido, tratar el payload como texto plano para no perder contenido
+          if (payload && payload !== '[DONE]') {
+            full += payload;
+            onChunk?.({ delta: payload, content: full });
+          }
           continue;
         }
       }
     }
 
     onChunk?.({ done: true, content: full });
+    telemetry.succeedAttempt(attempt, { outputChars: full.length });
     return full;
+  } catch (error) {
+    telemetry.failAttempt(attempt, error);
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
 }
 
-module.exports = { callAssistant, callAssistantStream };
+async function transcribeAudio(payload = {}, options = {}) {
+  const { provider = 'openai' } = options;
+  void provider;
+  const { apiKey, apiUrl, model } = resolveTranscribeConfig();
+
+  const { audioBuffer, mimeType = 'audio/webm', language = 'es' } = payload || {};
+  if (!audioBuffer) {
+    const err = new Error('Audio inválido para transcripción');
+    err.code = 'INVALID_AUDIO';
+    throw err;
+  }
+
+  const bytes = audioBuffer instanceof ArrayBuffer
+    ? new Uint8Array(audioBuffer)
+    : Array.isArray(audioBuffer)
+      ? Uint8Array.from(audioBuffer)
+      : audioBuffer?.buffer instanceof ArrayBuffer
+        ? new Uint8Array(audioBuffer.buffer)
+        : null;
+
+  if (!bytes || !bytes.length) {
+    const err = new Error('Audio vacío para transcripción');
+    err.code = 'EMPTY_AUDIO';
+    throw err;
+  }
+
+  const blob = new Blob([bytes], { type: mimeType });
+  const form = new FormData();
+  form.append('file', blob, `voice.${mimeType.includes('ogg') ? 'ogg' : 'webm'}`);
+  form.append('model', model);
+  form.append('language', language.startsWith('pt') ? 'pt' : language.startsWith('en') ? 'en' : 'es');
+
+  const res = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: form,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    const err = new Error(`STT error ${res.status}: ${text}`);
+    err.code = 'STT_ERROR';
+    throw err;
+  }
+
+  const data = await res.json();
+
+  const text = (
+    data?.text
+    || data?.transcript
+    || data?.result
+    || ''
+  ).trim();
+  if (!text) {
+    const err = new Error('Transcripción vacía');
+    err.code = 'EMPTY_TRANSCRIPT';
+    throw err;
+  }
+
+  return text;
+}
+
+module.exports = { callAssistant, callAssistantStream, transcribeAudio };

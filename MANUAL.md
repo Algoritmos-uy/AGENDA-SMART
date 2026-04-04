@@ -1,61 +1,155 @@
-# Manual de uso — Agenda Inteligente
+# Manual de uso — Agenda Inteligente (v1.3.6)
 
-## Qué hace
+## Resumen de funcionalidades
 
-- Agenda eventos con título, fecha, hora de inicio/fin, color y descripción.
-- Vistas diaria, semanal, mensual y lista de próximos eventos.
-- Notificaciones locales 10 minutos antes (requiere permitir notificaciones) con sonido `assets/audio/alerta.mp3`.
-- Tema claro/oscuro con persistencia.
-- Reloj en cabecera y fecha base para navegar.
-- CoordinalIA (asistente): consultas rápidas, creación de eventos por chat, conservación del hilo, detección de idioma (es/en/pt).
+Agenda Inteligente permite:
+
+- Crear, editar y eliminar eventos con título, fecha, hora inicio/fin, descripción, color y recordatorio.
+- Visualizar eventos en vistas **diaria**, **semanal**, **mensual** y lista de **próximos**.
+- Recibir alertas locales (con sonido) antes del evento.
+- Usar **CoordinalIA** por chat y por voz para consultar y crear eventos.
+- Configurar inicio automático al encender el sistema (en escritorio, según soporte del sistema operativo).
+- Interfaz y asistente con detección de idioma: **Español, Inglés y Portugués**.
+
+---
 
 ## Primeros pasos
 
-1. Abre `index.html` en el navegador (o ejecuta la app de escritorio).
-2. Permite notificaciones si el navegador lo solicita.
-3. Revisa que la fecha base muestre el día actual.
-4. (Solo escritorio) Configura la clave de IA: crea `.env` en la raíz con `DEEPSEEK_API_KEY=tu-clave`. Reinicia la app.
+1. Inicia la app web o de escritorio.
+2. Verifica que la fecha base esté en el día actual.
+3. (Recomendado) Permite notificaciones del sistema para ver banners emergentes.
+4. Si usarás IA, configura `.env` en la raíz del proyecto y reinicia la app.
 
-## Crear o editar evento
+Variables comunes:
 
-1. Completa **Título**, **Fecha**, **Hora inicio** y **Hora fin** (requeridos).
-2. Opcional: **Descripción** y **Color**.
-3. Pulsa **Guardar**. El evento aparece en las vistas y lista.
-4. Para editar, haz clic en el evento en cualquier vista, ajusta y guarda.
+- `DEEPSEEK_API_KEY` para chat de CoordinalIA con DeepSeek.
+- `OPENAI_API_KEY` para transcripción de voz avanzada (fallback STT).
 
-## Eliminar evento
+---
 
-- Haz clic en el evento y pulsa **Eliminar** en el formulario.
+## Gestión de eventos
 
-## Vistas
+### Crear o editar
 
-- **Diaria**: franjas horarias 08:00–20:00 del día base.
-- **Semanal**: semana (L-D) del día base.
-- **Mensual**: calendario del mes del día base.
-- **Próximos**: lista cronológica futura.
+1. Completa **Título**, **Fecha**, **Hora inicio** y **Hora fin**.
+2. Opcional: **Descripción**, **Color** y selección de **Recordatorio**.
+3. Pulsa **Guardar**.
+4. Para editar, selecciona un evento, modifica y guarda.
 
-## Notificaciones
+### Eliminar
 
-- Se programan 10 min antes de la hora de inicio.
-- Solo se disparan con la app abierta (web/Electron).
-- El sonido se reproduce al mostrarse la notificación.
+- Selecciona el evento y pulsa **Eliminar**.
 
-## CoordinalIA (asistente)
+---
 
-- Abrir: botón **CoordinalIA** en la cabecera.
-- Idioma: se ajusta automáticamente (es/en/pt) al idioma del sistema.
-- Hilo: se conserva entre aperturas; botón **Vaciar chat** limpia el historial.
-- Consultas rápidas locales (sin usar API): escribe “eventos de hoy”, “eventos de la semana” o “eventos del mes” (también en inglés/portugués) para listar lo guardado.
-- Crear eventos por chat: indica título, fecha (YYYY-MM-DD), hora inicio/fin (HH:MM) y descripción; el asistente devolverá un JSON y la app lo guardará automáticamente. Se confirmará con un mensaje breve.
-- Si falta un dato, el asistente lo pedirá; si no hay clave configurada, te avisará.
+## Vistas de agenda
 
-## Tema y reloj
+- **Diaria**: bloques horarios del día base.
+- **Semanal**: semana completa (lunes a domingo) del día base.
+- **Mensual**: calendario del mes.
+- **Próximos**: lista cronológica de eventos futuros.
 
-- Botón **Modo oscuro** alterna el tema y lo recuerda.
-- El reloj muestra la hora en vivo; la fecha base se puede cambiar con el selector.
+---
 
-## Consejos
+## Alertas y sonidos
 
-- Mantén abierta la pestaña/app para recibir el aviso.
-- Si no ves el icono de notificación, revisa permisos del navegador/sistema.
-- Usa colores para distinguir tipos de eventos.
+### Comportamiento actual
+
+- La app programa alertas a:
+  - **30 minutos antes** del evento.
+  - **15 minutos antes** del evento.
+- El audio **ya no se reproduce al iniciar la aplicación**.
+
+### Archivos de audio usados (por idioma)
+
+- 30 min:
+  - Inglés: `assets/audio/evento-30-en.mp3`
+  - Portugués: `assets/audio/evento-30-pt.mp3`
+  - Español / fallback: `assets/audio/evento-30.mp3`
+- 15 min:
+  - Inglés: `assets/audio/evento-15-en.mp3`
+  - Portugués: `assets/audio/evento-15-pt.mp3`
+  - Español / fallback: `assets/audio/evento-15.mp3`
+
+> Nota: Las alertas se disparan con la app abierta. Si no hay permiso de notificación, el banner puede no mostrarse, pero el audio de alerta se intenta reproducir igualmente.
+
+---
+
+## CoordinalIA (chat + voz)
+
+### Chat
+
+- Abre CoordinalIA desde el botón en cabecera.
+- Detecta idioma de la app/bot en `es`, `en`, `pt`.
+- El hilo se conserva entre aperturas.
+- Puedes vaciar historial con **Vaciar chat**.
+- Soporta proveedor configurable (**DeepSeek** / **OpenAI**) para chat según configuración.
+
+### Consultas rápidas locales
+
+Sin consumir API, puedes pedir:
+
+- “eventos de hoy”
+- “eventos de la semana”
+- “eventos del mes”
+
+(también funciona en inglés/portugués)
+
+### Creación de eventos por IA
+
+Si el asistente detecta una acción `create_event`, guarda el evento automáticamente.
+
+Mejora v1.3.6:
+
+- Si falta la hora de fin (`end`), la app la **autocompleta +60 min** desde la hora de inicio y lo informa en el chat.
+
+### Voz a texto
+
+- Botón `🎤 Hablar` para dictado.
+- Reconocimiento principal con Web Speech API.
+- Si hay problemas de red del reconocimiento, cambia a modo grabación + transcripción backend (requiere `OPENAI_API_KEY`).
+- Flujo UX mejorado: “Preparando envío...” antes del envío automático del mensaje de voz.
+
+---
+
+## Inicio automático con el sistema
+
+En escritorio, puedes activar **Iniciar con el sistema** desde la cabecera.
+
+- Si el sistema operativo lo soporta, la app puede iniciar en segundo plano al loguearte.
+- Si no lo soporta, el control aparece deshabilitado.
+
+---
+
+## Tema y experiencia de uso
+
+- Botón **Claro/Oscuro** con persistencia.
+- Reloj en vivo en cabecera.
+- Navegación rápida por fecha base en vistas semanal/mensual.
+
+---
+
+## Solución rápida de problemas
+
+### No responde CoordinalIA
+
+- Verifica API key del proveedor en `.env`.
+- Reinicia app después de editar `.env`.
+
+### Voz no transcribe
+
+- Revisa permisos de micrófono.
+- Si aparece error STT (`401/402`), valida plan/saldo y `OPENAI_API_KEY`.
+
+### No sonó alerta 30 min
+
+- Confirma que el evento se creó con suficiente anticipación (si faltan menos de 30 min, esa ventana ya no se agenda).
+- Verifica existencia de archivos de audio de 30 min.
+
+---
+
+## Recomendaciones
+
+- Mantén la app abierta para garantizar disparo de alertas locales.
+- Usa colores y descripciones para mejorar legibilidad.
+- Si usas voz, prueba primero una frase corta para validar permisos y dispositivo de entrada.

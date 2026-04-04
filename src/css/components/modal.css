@@ -138,3 +138,9 @@
     gap: var(--space-2);
     align-items: center;
 }
+
+#assistant-voice.is-listening {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+}

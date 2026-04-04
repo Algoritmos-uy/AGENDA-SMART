@@ -10,20 +10,20 @@
 
 ### Windows (instalador NSIS)
 
-1. Ejecuta el instalador (`Agenda-Smart Profesional Setup 1.3.5.exe`).
+1. Ejecuta el instalador (`Agenda-Smart Profesional Setup 1.3.6.exe`).
 2. Sigue el asistente y finaliza. Se creará un acceso directo.
 3. Abre la aplicación desde el menú Inicio. El título mostrará la versión.
 
 ### Windows (portable)
 
-1. Descomprime el zip/portable (`Agenda-Smart Profesional-Portable-1.3.5.zip`).
+1. Descomprime el zip/portable (`Agenda-Smart Profesional-Portable-1.3.6.zip`).
 2. Dentro, coloca un archivo `.env` (ver sección CoordinalIA) en la misma carpeta que el `.exe` si usarás la IA.
 3. Ejecuta el `.exe` directamente. No requiere instalación ni permisos de admin.
 
 ### Linux
 
-- **AppImage**: marca como ejecutable (`chmod +x Agenda-Smart-Profesional-1.3.5.AppImage`) y lánzalo. Opcionalmente, crea un `.env` junto al AppImage para la IA.
-- **DEB**: instala con `sudo dpkg -i agenda-smart-profesional_1.3.5_amd64.deb` y lanza desde aplicaciones.
+- **AppImage**: marca como ejecutable (`chmod +x Agenda-Smart-Profesional-1.3.6.AppImage`) y lánzalo. Opcionalmente, crea un `.env` junto al AppImage para la IA.
+- **DEB**: instala con `sudo dpkg -i agenda-smart-profesional_1.3.6_amd64.deb` y lanza desde aplicaciones.
 
 ## Primer inicio
 
@@ -36,7 +36,10 @@
 - Completa Título, Fecha, Inicio y Fin. Opcional: descripción y color.
 - Guarda para crear; haz clic en un evento para editar; usa “Eliminar” en el formulario para borrarlo.
 - Vistas: Diario (08:00–20:00), Semanal (L-D), Mensual y Próximos eventos.
-- Notificaciones: se programan 10 min antes mientras la app está abierta; sonido `assets/audio/alerta.mp3`.
+- Notificaciones: se programan a 30 y 15 min mientras la app está abierta.
+- Audio de alertas por idioma (fallback automático a español).
+- 30 min: `evento-30-en.mp3` / `evento-30-pt.mp3` / `evento-30.mp3`
+- 15 min: `evento-15-en.mp3` / `evento-15-pt.mp3` / `evento-15.mp3`
 
 ## CoordinalIA (asistente integrado)
 
@@ -44,6 +47,7 @@
 - Idioma: detecta es/en/pt según el sistema.
 - Hilo: se guarda entre aperturas; botón **Vaciar chat** limpia el historial.
 - Consultas rápidas locales: “eventos de hoy/semana/mes” (también en inglés/portugués) listan lo guardado sin usar la API.
+- Proveedor de chat configurable desde la UI: **DeepSeek** o **OpenAI**.
 - Crear eventos por chat: indica título, fecha (YYYY-MM-DD), hora inicio/fin (HH:MM) y descripción; el bot devolverá un JSON y la app lo guardará automáticamente.
 - Si falta algún dato, el bot lo pedirá; si falta la API key, avisará.
 
@@ -56,6 +60,9 @@
    # Opcional
    DEEPSEEK_MODEL=deepseek-chat
    DEEPSEEK_API_URL=https://api.deepseek.com/v1/chat/completions
+   OPENAI_API_KEY=tu-clave-openai
+   OPENAI_STT_MODEL=gpt-4o-mini-transcribe
+   OPENAI_TRANSCRIBE_API_URL=https://api.openai.com/v1/audio/transcriptions
    ```
 
 2. Ubicación del `.env`:
@@ -63,10 +70,15 @@
    - En app instalada/portable: mismo directorio que el ejecutable **o** dentro de `resources/.env`.
 3. Reinicia la app tras guardar `.env`.
 
-## Modo oscuro y accesos rápidos
+## Tema y accesos rápidos
 
-- Botón **Modo oscuro** alterna tema y se recuerda.
+- Botón **Claro/Oscuro** alterna tema y se recuerda.
 - Navegación rápida: botones “Semana anterior/siguiente” y “Mes anterior/siguiente”.
+
+## Idiomas de la interfaz
+
+- La aplicación detecta y adapta idioma (`es`, `en`, `pt`) en UI y asistente.
+- Incluye traducciones de menús, estados, placeholders, validaciones y notificaciones.
 
 ## Solución de problemas
 

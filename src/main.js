@@ -1,5 +1,7 @@
-const { app, BrowserWindow, Menu, shell, ipcMain, Tray } = require('electron');
-const { callAssistant, callAssistantStream } = require('./assistant');
+const { app, BrowserWindow, Menu, shell, ipcMain, Tray, session } = require('electron');
+const { callAssistant, callAssistantStream, transcribeAudio } = require('./assistant');
+const telemetry = require('./assistantTelemetry');
+const { isAutoStartSupported, isAutoStartLaunch } = require('./autoStartUtils');
 const store = require('./backgroundStore');
 const scheduler = require('./backgroundScheduler');
 const path = require('path');
@@ -13,8 +15,29 @@ let mainWindow = null;
 let tray = null;
 let isQuitting = false;
 const stayInTray = true;
+const AUTOSTART_ARG = '--autostart';
 
-function createWindow() {
+function configureMediaPermissions() {
+  const defaultSession = session.defaultSession;
+  if (!defaultSession) return;
+
+  defaultSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin) => {
+    const isLocalApp = String(requestingOrigin || '').startsWith('file://');
+    if (!isLocalApp) return false;
+    return permission === 'media' || permission === 'audioCapture';
+  });
+
+  defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+    const isLocalApp = String(details?.requestingUrl || '').startsWith('file://');
+    if (!isLocalApp) {
+      callback(false);
+      return;
+    }
+    callback(permission === 'media' || permission === 'audioCapture');
+  });
+}
+
+function createWindow({ startHidden = false } = {}) {
   const iconName = process.platform === 'win32' ? 'agenda.ico' : 'agenda.png';
   const iconPath = path.join(app.getAppPath(), 'assets', 'icons', iconName);
   const indexPath = path.join(app.getAppPath(), 'index.html');
@@ -24,6 +47,7 @@ function createWindow() {
     height: 800,
     minWidth: 960,
     minHeight: 600,
+    show: !startHidden,
     icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -68,6 +92,31 @@ function createWindow() {
   return win;
 }
 
+function getAutoStartStatus() {
+  const supported = isAutoStartSupported(process.platform);
+  const settings = typeof app.getLoginItemSettings === 'function' ? app.getLoginItemSettings() : {};
+  return {
+    supported,
+    enabled: supported ? !!settings?.openAtLogin : false,
+    launchAtLogin: isAutoStartLaunch({ argv: process.argv, loginItemSettings: settings }),
+  };
+}
+
+function setAutoStartEnabled(enabled) {
+  const supported = isAutoStartSupported(process.platform);
+  if (!supported || typeof app.setLoginItemSettings !== 'function') {
+    return { ok: false, ...getAutoStartStatus() };
+  }
+
+  app.setLoginItemSettings({
+    openAtLogin: !!enabled,
+    openAsHidden: true,
+    args: [AUTOSTART_ARG],
+  });
+
+  return { ok: true, ...getAutoStartStatus() };
+}
+
 ipcMain.handle('app:getVersion', () => app.getVersion());
 ipcMain.handle('app:getLocale', () => {
   try {
@@ -80,19 +129,30 @@ ipcMain.handle('app:getLocale', () => {
     return 'es';
   }
 });
+ipcMain.handle('app:getAutoStartStatus', () => getAutoStartStatus());
+ipcMain.handle('app:setAutoStartEnabled', (_event, enabled) => setAutoStartEnabled(Boolean(enabled)));
 ipcMain.handle('assistant:chat', async (_event, payload = {}) => {
-  const { messages = [] } = payload;
-  return callAssistant(messages);
+  const { messages = [], provider, retry = false } = payload;
+  return callAssistant(messages, { provider, retry });
 });
 ipcMain.handle('assistant:chatStream', async (event, payload = {}) => {
-  const { messages = [], requestId } = payload;
+  const { messages = [], requestId, provider, retry = false } = payload;
   const sender = event?.sender;
   const sendChunk = (data) => {
     if (sender && !sender.isDestroyed()) {
       sender.send('assistant:chunk', { ...data, requestId });
     }
   };
-  return callAssistantStream(messages, { onChunk: sendChunk });
+  return callAssistantStream(messages, { onChunk: sendChunk, provider, retry });
+});
+ipcMain.handle('assistant:transcribeAudio', async (_event, payload = {}) => {
+  const { provider = 'openai', language = 'es', mimeType = 'audio/webm', audioBuffer } = payload;
+  return transcribeAudio({ audioBuffer, mimeType, language }, { provider });
+});
+ipcMain.handle('assistant:getTelemetry', async () => telemetry.getSnapshot());
+ipcMain.handle('assistant:resetTelemetry', async () => {
+  telemetry.resetTelemetry();
+  return { ok: true };
 });
 
 ipcMain.handle('events:get', async () => store.readEvents());
@@ -141,7 +201,10 @@ function createTray() {
 
 app.whenReady().then(() => {
   if (process.platform === 'win32') app.setAppUserModelId('com.agenda.online');
-  createWindow();
+  configureMediaPermissions();
+  const autoStart = getAutoStartStatus();
+  const startHidden = stayInTray && autoStart.launchAtLogin;
+  createWindow({ startHidden });
   createTray();
 
   scheduler.initScheduler();

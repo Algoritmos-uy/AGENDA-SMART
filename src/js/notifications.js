@@ -1,15 +1,47 @@
 /* Notificaciones locales (app abierta) */
-const MINUTES_BEFORE = 10;          // Minutos de adelanto antes del evento
+import { normalizeLocale } from './utils/agendaDateUtils.js';
+import { t } from './utils/i18n.js';
+
 const MAX_DAYS_AHEAD = 7;           // Límite de programación futura
-const AUDIO_PATH = 'assets/audio/alerta.mp3'; // Sonido de aviso
+const ALERT_CONFIGS = [
+  {
+    minutesBefore: 30,
+    audioBase: '30',
+  },
+  {
+    minutesBefore: 15,
+    audioBase: '15',
+  },
+];
+
+function getAudioCandidates(base, locale = 'es') {
+  const lang = normalizeLocale(locale);
+  if (lang === 'en') {
+    return [
+      `assets/audio/evento-${base}-en.mp3`,
+      `assets/audio/evento-${base}.mp3`,
+    ];
+  }
+  if (lang === 'pt') {
+    return [
+      `assets/audio/evento-${base}-pt.mp3`,
+      `assets/audio/evento-${base}.mp3`,
+    ];
+  }
+  return [
+    `assets/audio/evento-${base}.mp3`,
+  ];
+}
 
 export class Notifier {
   constructor() {
-    this.timers = new Map();        // idEvento -> timeoutId
+    this.timers = new Map();        // idEvento:minutos -> timeoutId
     this.permission = 'default';
-    this.audio = new Audio(AUDIO_PATH);
-    this.audio.preload = 'auto';
-    this.audio.autoplay = true;
+    this.locale = normalizeLocale(navigator?.language || 'es');
+  }
+
+  setLocale(locale = 'es') {
+    this.locale = normalizeLocale(locale);
   }
 
   // Pide permiso al usuario (si el navegador soporta Notifications).
@@ -32,33 +64,39 @@ export class Notifier {
 
   // Cancela un evento específico.
   cancelFor(eventId) {
-    const t = this.timers.get(eventId);
-    if (t) clearTimeout(t);
-    this.timers.delete(eventId);
+    const prefix = `${eventId}:`;
+    for (const [key, timer] of this.timers.entries()) {
+      if (!key.startsWith(prefix)) continue;
+      clearTimeout(timer);
+      this.timers.delete(key);
+    }
   }
 
   // Programa la notificación para un evento.
   scheduleFor(event) {
-    if (this.permission !== 'granted') return;
     const eventTime = new Date(`${event.date}T${event.start}`).getTime();
     if (Number.isNaN(eventTime)) return;
 
     const now = Date.now();
-    const advanceMs = MINUTES_BEFORE * 60 * 1000;
-    const fireAt = eventTime - advanceMs;
     const maxAhead = now + MAX_DAYS_AHEAD * 24 * 60 * 60 * 1000;
-
-    // No programar si ya pasó o está demasiado lejos.
-    if (fireAt <= now || fireAt > maxAhead) return;
 
     this.cancelFor(event.id); // Evita duplicados
 
-    const timeoutId = window.setTimeout(() => {
-      this._notify(event);
-      this.timers.delete(event.id);
-    }, fireAt - now);
+    ALERT_CONFIGS.forEach(({ minutesBefore }) => {
+      const advanceMs = minutesBefore * 60 * 1000;
+      const fireAt = eventTime - advanceMs;
 
-    this.timers.set(event.id, timeoutId);
+      // No programar si ya pasó o está demasiado lejos.
+      if (fireAt <= now || fireAt > maxAhead) return;
+
+      const timerKey = `${event.id}:${minutesBefore}`;
+      const timeoutId = window.setTimeout(() => {
+        this._notify(event, minutesBefore);
+        this.timers.delete(timerKey);
+      }, fireAt - now);
+
+      this.timers.set(timerKey, timeoutId);
+    });
   }
 
   // Reprograma todos los eventos (p.ej. tras render o CRUD).
@@ -68,11 +106,31 @@ export class Notifier {
   }
 
   // Muestra notificación y reproduce sonido.
-  _notify(event) {
-    const title = 'Recordatorio de evento';
-    const body = `${event.title || 'Evento'} a las ${event.start} (${event.date})`;
-    try { new Notification(title, { body }); } catch (err) { console.warn('No se pudo mostrar la notificación', err); }
-    this.audio.currentTime = 0;
-    this.audio.play().catch(() => {});
+  _notify(event, minutesBefore) {
+    const title = t(this.locale, 'notifications.title');
+    const body = t(this.locale, 'notifications.body', {
+      title: event.title || t(this.locale, 'notifications.defaultEventTitle'),
+      minutes: minutesBefore,
+      start: event.start,
+      date: event.date,
+    });
+    if (this.permission === 'granted') {
+      try { new Notification(title, { body }); } catch (err) { console.warn('No se pudo mostrar la notificación', err); }
+    }
+    this._playAlertSound(minutesBefore);
+  }
+
+  _playAlertSound(minutesBefore) {
+    const cfg = ALERT_CONFIGS.find((c) => c.minutesBefore === minutesBefore);
+    const paths = cfg?.audioBase ? getAudioCandidates(cfg.audioBase, this.locale) : [];
+
+    const tryPlay = (index = 0) => {
+      if (index >= paths.length) return;
+      const audio = new Audio(paths[index]);
+      audio.preload = 'auto';
+      audio.play().catch(() => tryPlay(index + 1));
+    };
+
+    tryPlay(0);
   }
 }

@@ -15,32 +15,36 @@
                 <div class="brand-mark" aria-hidden="true">
                     <img src="assets/icons/agenda-smart.png" alt="" class="brand-mark__icon">
                 </div>
-                <h1>Agenda Smart</h1>
+                <h1 data-i18n="app.title">Agenda Smart</h1>
                 <div class="developer-tag">
-                    <span class="developer-tag__label">Desarrollado por:</span>
-                    <a href="https://www.algoritmos.uy" target="_blank" rel="noreferrer noopener" class="developer-tag__logo" aria-label="Algoritmos Uy">
+                    <span class="developer-tag__label" data-i18n="app.developedBy">Desarrollado por:</span>
+                    <a href="https://www.algoritmos.uy" target="_blank" rel="noreferrer noopener" class="developer-tag__logo" aria-label="Algoritmos Uy" data-i18n-aria-label="app.companyAria">
                         <img src="assets/logos/wj-software.png" alt="Logo Algoritmos Uy">
                     </a>
                 </div>
             </div>
             <div class="site-header__controls">
                 <label class="control">
-                    <span class="control__label">Fecha base</span>
+                    <span class="control__label" data-i18n="header.baseDate">Fecha base</span>
                     <input type="date" id="base-date" />
                 </label>
-                <div class="header-clock" aria-label="Hora actual">
+                <div class="header-clock" aria-label="Hora actual" data-i18n-aria-label="header.currentTimeAria">
                     <span id="live-clock" class="header-clock__time">--:--:--</span>
                 </div>
-                <div class="view-switch" role="group" aria-label="Cambiar vista">
-                    <button class="btn btn--ghost is-active" data-target="day" aria-pressed="true">Diaria</button>
-                    <button class="btn btn--ghost" data-target="week" aria-pressed="false">Semanal</button>
-                    <button class="btn btn--ghost" data-target="month" aria-pressed="false">Mensual</button>
+                <div class="view-switch" role="group" aria-label="Cambiar vista" data-i18n-aria-label="header.switchViewAria">
+                    <button class="btn btn--ghost is-active" data-target="day" aria-pressed="true" data-i18n="header.viewDaily">Diaria</button>
+                    <button class="btn btn--ghost" data-target="week" aria-pressed="false" data-i18n="header.viewWeekly">Semanal</button>
+                    <button class="btn btn--ghost" data-target="month" aria-pressed="false" data-i18n="header.viewMonthly">Mensual</button>
                 </div>
-                <button class="btn btn--ghost theme-toggle" id="theme-toggle" aria-pressed="false" type="button">Modo oscuro</button>
-                <span id="app-version" class="badge" aria-label="Versión de la aplicación"></span>
+                <label class="autostart-control" for="autostart-toggle">
+                    <input type="checkbox" id="autostart-toggle">
+                    <span data-i18n="header.autoStart">Iniciar con el sistema</span>
+                </label>
+                <button class="btn btn--ghost theme-toggle" id="theme-toggle" aria-pressed="false" type="button" data-i18n="header.themeToggle">Oscuro</button>
+                <span id="app-version" class="badge" aria-label="Versión de la aplicación" data-i18n-aria-label="header.appVersionAria"></span>
                 <button class="btn btn--primary assistant-trigger" id="assistant-open" type="button" aria-haspopup="dialog" aria-controls="assistant-modal">
                     <img src="assets/icons/chat-icon.png" alt="" class="assistant-trigger__icon" aria-hidden="true">
-                    <span>CoordinalIA</span>
+                    <span data-i18n="header.assistant">CoordinalIA</span>
                 </button>
             </div>
         </header>
@@ -48,36 +52,61 @@
         <main class="layout">
             <section class="panel panel--form">
                 <div class="panel__header">
-                    <h2>Nuevo evento</h2>
-                    <p class="panel__subtitle">Crea, edita o elimina eventos. Se guardan localmente.</p>
+                    <h2 data-i18n="form.title">Nuevo evento</h2>
+                    <p class="panel__subtitle" data-i18n="form.subtitle">Crea, edita o elimina eventos. Se guardan localmente.</p>
                 </div>
                 <form id="event-form" class="form">
                     <input type="hidden" id="event-id" name="event-id">
                     <div class="form__row">
-                        <label class="control" for="title">Título</label>
-                        <input type="text" id="title" name="title" required placeholder="Ej. Reunión con el equipo">
+                        <label class="control" for="title" data-i18n="form.fieldTitle">Título</label>
+                        <input type="text" id="title" name="title" required placeholder="Ej. Reunión con el equipo" data-i18n-placeholder="form.placeholderTitle">
                     </div>
                     <div class="form__row form__row--inline">
-                        <label class="control" for="date">Fecha</label>
+                        <label class="control" for="date" data-i18n="form.fieldDate">Fecha</label>
                         <input type="date" id="date" name="date" required>
 
-                        <label class="control" for="start">Inicio</label>
+                        <label class="control" for="start" data-i18n="form.fieldStart">Inicio</label>
                         <input type="time" id="start" name="start" required>
 
-                        <label class="control" for="end">Fin</label>
+                        <label class="control" for="end" data-i18n="form.fieldEnd">Fin</label>
                         <input type="time" id="end" name="end" required>
                     </div>
                     <div class="form__row">
-                        <label class="control" for="description">Descripción</label>
-                        <textarea id="description" name="description" rows="3" placeholder="Notas u objetivos del evento"></textarea>
+                        <label class="control" for="description" data-i18n="form.fieldDescription">Descripción</label>
+                        <textarea id="description" name="description" rows="3" placeholder="Notas u objetivos del evento" data-i18n-placeholder="form.placeholderDescription"></textarea>
                     </div>
                     <div class="form__row form__row--inline">
-                        <label class="control" for="color">Color</label>
+                        <label class="control" for="reminder" data-i18n="form.fieldReminder">Recordatorio</label>
+                        <select id="reminder" name="reminder" aria-label="Tiempo de recordatorio" data-i18n-aria-label="form.reminderAria">
+                            <option value="5" data-i18n="form.reminder5">5 minutos antes</option>
+                            <option value="10" selected data-i18n="form.reminder10">10 minutos antes</option>
+                            <option value="15" data-i18n="form.reminder15">15 minutos antes</option>
+                            <option value="30" data-i18n="form.reminder30">30 minutos antes</option>
+                            <option value="60" data-i18n="form.reminder60">60 minutos antes</option>
+                            <option value="custom" data-i18n="form.reminderCustom">Personalizado</option>
+                        </select>
+
+                        <div id="reminder-custom-wrapper" class="control reminder-custom-wrapper">
+                            <label class="control" for="reminder-custom" data-i18n="form.customMinutes">Minutos personalizados</label>
+                            <input
+                                type="number"
+                                id="reminder-custom"
+                                name="reminder-custom"
+                                min="1"
+                                step="1"
+                                inputmode="numeric"
+                                placeholder="Ej. 20"
+                                data-i18n-placeholder="form.placeholderCustomMinutes"
+                            >
+                        </div>
+                    </div>
+                    <div class="form__row form__row--inline">
+                        <label class="control" for="color" data-i18n="form.fieldColor">Color</label>
                         <input type="color" id="color" name="color" value="#2563eb">
 
                         <div class="form__actions">
-                            <button type="submit" class="btn btn--primary" id="submit-btn">Guardar evento</button>
-                            <button type="reset" class="btn btn--ghost" id="reset-btn">Cancelar</button>
+                            <button type="submit" class="btn btn--primary" id="submit-btn" data-i18n="form.save">Guardar evento</button>
+                            <button type="reset" class="btn btn--ghost" id="reset-btn" data-i18n="form.cancel">Cancelar</button>
                         </div>
                     </div>
                     <p class="status" id="form-status" role="status" aria-live="polite"></p>
@@ -86,13 +115,13 @@
 
             <section class="panel panel--agenda">
                 <div class="panel__header">
-                    <h2>Calendario</h2>
-                    <p class="panel__subtitle">Cambia la vista para navegar tu agenda.</p>
+                    <h2 data-i18n="calendar.title">Calendario</h2>
+                    <p class="panel__subtitle" data-i18n="calendar.subtitle">Cambia la vista para navegar tu agenda.</p>
                 </div>
                 <div class="agenda">
                     <section id="view-daily" class="agenda-view" data-view="daily">
                         <div class="agenda-view__header">
-                            <h3>Vista diaria</h3>
+                            <h3 data-i18n="calendar.daily">Vista diaria</h3>
                             <p class="muted" id="daily-caption"></p>
                         </div>
                         <div id="daily-slots" class="timeline"></div>
@@ -101,12 +130,12 @@
                     <section id="view-weekly" class="agenda-view is-hidden" data-view="weekly">
                         <div class="agenda-view__header">
                             <div>
-                                <h3>Vista semanal</h3>
+                                <h3 data-i18n="calendar.weekly">Vista semanal</h3>
                                 <p class="muted" id="weekly-caption"></p>
                             </div>
-                            <div class="agenda-nav" role="group" aria-label="Navegar semanas">
-                                <button class="btn btn--ghost" id="weekly-prev" type="button">Semana anterior</button>
-                                <button class="btn btn--ghost" id="weekly-next" type="button">Semana siguiente</button>
+                            <div class="agenda-nav" role="group" aria-label="Navegar semanas" data-i18n-aria-label="calendar.navWeeksAria">
+                                <button class="btn btn--ghost" id="weekly-prev" type="button" data-i18n="calendar.prevWeek">Semana anterior</button>
+                                <button class="btn btn--ghost" id="weekly-next" type="button" data-i18n="calendar.nextWeek">Semana siguiente</button>
                             </div>
                         </div>
                         <div id="weekly-grid" class="week-grid"></div>
@@ -115,12 +144,12 @@
                     <section id="view-monthly" class="agenda-view is-hidden" data-view="monthly">
                         <div class="agenda-view__header">
                             <div>
-                                <h3>Vista mensual</h3>
+                                <h3 data-i18n="calendar.monthly">Vista mensual</h3>
                                 <p class="muted" id="monthly-caption"></p>
                             </div>
-                            <div class="agenda-nav" role="group" aria-label="Navegar meses">
-                                <button class="btn btn--ghost" id="monthly-prev" type="button">Mes anterior</button>
-                                <button class="btn btn--ghost" id="monthly-next" type="button">Mes siguiente</button>
+                            <div class="agenda-nav" role="group" aria-label="Navegar meses" data-i18n-aria-label="calendar.navMonthsAria">
+                                <button class="btn btn--ghost" id="monthly-prev" type="button" data-i18n="calendar.prevMonth">Mes anterior</button>
+                                <button class="btn btn--ghost" id="monthly-next" type="button" data-i18n="calendar.nextMonth">Mes siguiente</button>
                             </div>
                         </div>
                         <div class="month-grid" id="monthly-grid"></div>
@@ -130,8 +159,8 @@
 
             <section class="panel panel--list">
                 <div class="panel__header">
-                    <h2>Próximos eventos</h2>
-                    <p class="panel__subtitle">Ordenados cronológicamente</p>
+                    <h2 data-i18n="list.title">Próximos eventos</h2>
+                    <p class="panel__subtitle" data-i18n="list.subtitle">Ordenados cronológicamente</p>
                 </div>
                 <div id="event-list" class="event-list"></div>
             </section>
@@ -148,26 +177,27 @@
                     </span>
                     <h2 id="assistant-title">CoordinalIA</h2>
                 </div>
-                <button class="btn btn--ghost modal__close" id="assistant-close" aria-label="Cerrar">✕</button>
+                <button class="btn btn--ghost modal__close" id="assistant-close" aria-label="Cerrar" data-i18n-aria-label="assistant.close">✕</button>
             </header>
             <div class="modal__body">
                 <div class="assistant-chat">
                     <div id="assistant-thread" class="assistant-thread" aria-live="polite"></div>
                     <form id="assistant-form" class="assistant-form">
-                        <label class="sr-only" for="assistant-input">Mensaje para CoordinalIA</label>
-                        <textarea id="assistant-input" rows="3" placeholder="Escribe tu mensaje..." required></textarea>
+                        <label class="sr-only" for="assistant-input" data-i18n="assistant.messageLabel">Mensaje para CoordinalIA</label>
+                        <textarea id="assistant-input" rows="3" placeholder="Escribe tu mensaje..." data-i18n-placeholder="assistant.placeholder" required></textarea>
                         <div class="assistant-form__actions">
                             <span id="assistant-status" class="muted" role="status" aria-live="polite"></span>
                             <div class="assistant-form__buttons">
-                                <button class="btn btn--ghost" id="assistant-clear" type="button">Vaciar chat</button>
-                                <button class="btn btn--primary" id="assistant-send" type="submit">Enviar</button>
+                                <button class="btn btn--ghost" id="assistant-voice" type="button" title="Activar micrófono" data-i18n-title="assistant.voiceTitle" data-i18n="assistant.voiceButton">🎤 Hablar</button>
+                                <button class="btn btn--ghost" id="assistant-clear" type="button" data-i18n="assistant.clear">Vaciar chat</button>
+                                <button class="btn btn--primary" id="assistant-send" type="submit" data-i18n="assistant.send">Enviar</button>
                             </div>
                         </div>
                     </form>
                 </div>
             </div>
             <footer class="modal__footer">
-                <button class="btn btn--primary" id="assistant-close-footer" type="button">Cerrar</button>
+                <button class="btn btn--primary" id="assistant-close-footer" type="button" data-i18n="assistant.close">Cerrar</button>
             </footer>
         </div>
     </div>

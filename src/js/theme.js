@@ -27,7 +27,13 @@
 
     function updateButtonLabel(theme, btn) {
         const isDark = theme === 'dark';
-        btn.textContent = isDark ? 'Modo claro' : 'Modo oscuro';
+        const lang = String(document?.documentElement?.lang || 'es').toLowerCase();
+        const labels = lang.startsWith('en')
+            ? { dark: 'Dark', light: 'Light' }
+            : lang.startsWith('pt')
+                ? { dark: 'Escuro', light: 'Claro' }
+                : { dark: 'Oscuro', light: 'Claro' };
+        btn.textContent = isDark ? labels.light : labels.dark;
         btn.setAttribute('aria-pressed', String(isDark));
     }
 })();
