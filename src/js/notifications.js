@@ -3,6 +3,9 @@ import { normalizeLocale } from './utils/agendaDateUtils.js';
 import { t } from './utils/i18n.js';
 
 const MAX_DAYS_AHEAD = 7;           // Límite de programación futura
+const ALERT_LOOP_INTERVAL_MS = 10000;
+const ALERT_AUTO_STOP_MS = 3 * 60 * 1000;
+const ALERT_SNOOZE_MS = 2 * 60 * 1000;
 const ALERT_CONFIGS = [
   {
     minutesBefore: 30,
@@ -36,8 +39,13 @@ function getAudioCandidates(base, locale = 'es') {
 export class Notifier {
   constructor() {
     this.timers = new Map();        // idEvento:minutos -> timeoutId
+    this.snoozeTimers = new Map();  // idEvento:minutos -> timeoutId
     this.permission = 'default';
     this.locale = normalizeLocale(navigator?.language || 'es');
+    this.activeAlert = null;
+    this.alertLoopTimer = null;
+    this.alertAutoStopTimer = null;
+    this.alertModalEl = null;
   }
 
   setLocale(locale = 'es') {
@@ -60,6 +68,9 @@ export class Notifier {
   cancelAll() {
     for (const t of this.timers.values()) clearTimeout(t);
     this.timers.clear();
+    for (const t of this.snoozeTimers.values()) clearTimeout(t);
+    this.snoozeTimers.clear();
+    this._stopActiveAlert();
   }
 
   // Cancela un evento específico.
@@ -69,6 +80,14 @@ export class Notifier {
       if (!key.startsWith(prefix)) continue;
       clearTimeout(timer);
       this.timers.delete(key);
+    }
+    for (const [key, timer] of this.snoozeTimers.entries()) {
+      if (!key.startsWith(prefix)) continue;
+      clearTimeout(timer);
+      this.snoozeTimers.delete(key);
+    }
+    if (this.activeAlert?.event?.id === eventId) {
+      this._stopActiveAlert();
     }
   }
 
@@ -107,6 +126,12 @@ export class Notifier {
 
   // Muestra notificación y reproduce sonido.
   _notify(event, minutesBefore) {
+    const incomingKey = `${event.id}:${minutesBefore}`;
+    if (this.activeAlert && this.activeAlert.key !== incomingKey) {
+      // Si ya hay una alerta en curso, se descarta la nueva para evitar cola.
+      return;
+    }
+
     const title = t(this.locale, 'notifications.title');
     const body = t(this.locale, 'notifications.body', {
       title: event.title || t(this.locale, 'notifications.defaultEventTitle'),
@@ -117,7 +142,87 @@ export class Notifier {
     if (this.permission === 'granted') {
       try { new Notification(title, { body }); } catch (err) { console.warn('No se pudo mostrar la notificación', err); }
     }
+    this._startAlertLoop(event, minutesBefore);
+  }
+
+  _startAlertLoop(event, minutesBefore) {
+    const alertKey = `${event.id}:${minutesBefore}`;
+    if (this.activeAlert && this.activeAlert.key !== alertKey) return;
+    if (this.activeAlert?.key === alertKey) return;
+
+    this.activeAlert = { key: alertKey, event, minutesBefore };
+
+    this._showAlertModal(event, minutesBefore);
     this._playAlertSound(minutesBefore);
+
+    this.alertLoopTimer = window.setInterval(() => {
+      this._playAlertSound(minutesBefore);
+    }, ALERT_LOOP_INTERVAL_MS);
+
+    this.alertAutoStopTimer = window.setTimeout(() => {
+      this._stopActiveAlert();
+    }, ALERT_AUTO_STOP_MS);
+  }
+
+  _stopActiveAlert() {
+    if (this.alertLoopTimer) {
+      clearInterval(this.alertLoopTimer);
+      this.alertLoopTimer = null;
+    }
+    if (this.alertAutoStopTimer) {
+      clearTimeout(this.alertAutoStopTimer);
+      this.alertAutoStopTimer = null;
+    }
+    if (this.alertModalEl?.parentNode) {
+      this.alertModalEl.parentNode.removeChild(this.alertModalEl);
+    }
+    this.alertModalEl = null;
+    this.activeAlert = null;
+  }
+
+  _snoozeActiveAlert() {
+    const current = this.activeAlert;
+    if (!current) return;
+
+    const { event, minutesBefore, key } = current;
+    this._stopActiveAlert();
+
+    if (this.snoozeTimers.has(key)) {
+      clearTimeout(this.snoozeTimers.get(key));
+    }
+    const snoozeTimer = window.setTimeout(() => {
+      this.snoozeTimers.delete(key);
+      this._notify(event, minutesBefore);
+    }, ALERT_SNOOZE_MS);
+
+    this.snoozeTimers.set(key, snoozeTimer);
+  }
+
+  _showAlertModal(event, minutesBefore) {
+    const title = t(this.locale, 'notifications.alertModalTitle');
+    const message = t(this.locale, 'notifications.alertModalMessage', {
+      title: event.title || t(this.locale, 'notifications.defaultEventTitle'),
+      minutes: minutesBefore,
+    });
+
+    const overlay = document.createElement('div');
+    overlay.className = 'event-alert-overlay';
+    overlay.innerHTML = `
+      <div class="event-alert" role="alertdialog" aria-modal="true" aria-live="assertive" aria-label="${title}">
+        <h3 class="event-alert__title">${title}</h3>
+        <p class="event-alert__message">${message}</p>
+        <div class="event-alert__actions">
+          <button type="button" class="btn btn--ghost" data-action="snooze">${t(this.locale, 'notifications.snooze2m')}</button>
+          <button type="button" class="btn btn--primary" data-action="stop">${t(this.locale, 'notifications.stopAlert')}</button>
+        </div>
+      </div>
+    `;
+
+    overlay.querySelector('[data-action="stop"]')?.addEventListener('click', () => this._stopActiveAlert());
+    overlay.querySelector('[data-action="snooze"]')?.addEventListener('click', () => this._snoozeActiveAlert());
+
+    document.body.appendChild(overlay);
+    this.alertModalEl = overlay;
   }
 
   _playAlertSound(minutesBefore) {

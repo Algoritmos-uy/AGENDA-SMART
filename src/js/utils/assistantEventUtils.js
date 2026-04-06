@@ -69,6 +69,70 @@ function minutesToTime(totalMinutes = 0) {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+function parseDurationMinutes(value, fallback = 60) {
+    if (value === undefined || value === null || value === '') return fallback;
+    const raw = String(value).trim();
+    if (!raw) return fallback;
+
+    const normalized = raw
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+
+    const hmMatch = normalized.match(/(\d{1,2})\s*(?:h|hr|hrs|hora|horas)\s*(?:y|e|and)?\s*(\d{1,2})\s*(?:m|min|mins|minuto|minutos)?/i);
+    if (hmMatch) {
+        const h = Number(hmMatch[1]);
+        const m = Number(hmMatch[2]);
+        if (Number.isFinite(h) && Number.isFinite(m) && h >= 0 && m >= 0) {
+            return Math.max(1, (h * 60) + m);
+        }
+    }
+
+    const hAndHalfMatch = normalized.match(/(\d{1,2})\s*(?:h|hr|hrs|hora|horas)\s*(?:y|e|and)\s*media\b/i);
+    if (hAndHalfMatch) {
+        const h = Number(hAndHalfMatch[1]);
+        if (Number.isFinite(h) && h >= 0) {
+            return Math.max(1, (h * 60) + 30);
+        }
+    }
+
+    if (/\bhora\s+y\s+media\b/i.test(normalized) || /\bhour\s+and\s+a\s+half\b/i.test(normalized) || /\bhora\s+e\s+meia\b/i.test(normalized)) {
+        return 90;
+    }
+
+    if (/\bmedia\s+hora\b/i.test(normalized) || /\bhalf\s+an\s+hour\b/i.test(normalized) || /\bmeia\s+hora\b/i.test(normalized)) {
+        return 30;
+    }
+
+    const hOnlyMatch = normalized.match(/(\d{1,2})\s*(?:h|hr|hrs|hora|horas)\b/i);
+    if (hOnlyMatch) {
+        const h = Number(hOnlyMatch[1]);
+        if (Number.isFinite(h) && h >= 0) {
+            return Math.max(1, h * 60);
+        }
+    }
+
+    const mOnlyMatch = normalized.match(/(\d{1,4})\s*(?:m|min|mins|minuto|minutos)\b/i);
+    if (mOnlyMatch) {
+        const m = Number(mOnlyMatch[1]);
+        if (Number.isFinite(m) && m > 0) {
+            return Math.max(1, Math.round(m));
+        }
+    }
+
+    const direct = Number(raw);
+    if (Number.isFinite(direct) && direct > 0) {
+        return Math.max(1, Math.round(direct));
+    }
+
+    const match = raw.match(/(\d{1,4})/);
+    if (!match) return fallback;
+    const parsed = Number(match[1]);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return Math.max(1, Math.round(parsed));
+}
+
 export function inferEndFromStart(start = '', durationMinutes = 60) {
     const startMinutes = toMinutes(start);
     if (startMinutes === null) return null;
@@ -85,10 +149,18 @@ export function validateEventPayload(obj = {}, locale = 'es') {
     const description = (obj.description || '').trim();
     const color = (obj.color || '#2563eb').trim();
     const startOk = /^\d{2}:\d{2}$/.test(start);
+    const durationMinutes = parseDurationMinutes(
+        obj.duration_minutes
+        ?? obj.durationMinutes
+        ?? obj.duration
+        ?? obj.duracion_minutos
+        ?? obj.duracion,
+        60
+    );
 
     let autoCompletedEnd = false;
     if (!end && startOk) {
-        const inferred = inferEndFromStart(start, 60);
+        const inferred = inferEndFromStart(start, durationMinutes);
         if (inferred) {
             end = inferred;
             autoCompletedEnd = true;
@@ -113,7 +185,7 @@ export function validateEventPayload(obj = {}, locale = 'es') {
     const reminder_offset = normalizeReminderOffset(obj.reminder_offset);
     return {
         ok: true,
-        data: { title, date, start, end, description, color, reminder_offset, autoCompletedEnd }
+        data: { title, date, start, end, description, color, reminder_offset, autoCompletedEnd, autoDurationMinutes: durationMinutes }
     };
 }
 

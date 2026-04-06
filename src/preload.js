@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('appBridge', {
   chat: (payload) => ipcRenderer.invoke('assistant:chat', payload),
   chatStream: (payload) => ipcRenderer.invoke('assistant:chatStream', payload),
   transcribeAudio: (payload) => ipcRenderer.invoke('assistant:transcribeAudio', payload),
+  synthesizeSpeech: (payload) => ipcRenderer.invoke('assistant:synthesizeSpeech', payload),
   getAssistantTelemetry: () => ipcRenderer.invoke('assistant:getTelemetry'),
   resetAssistantTelemetry: () => ipcRenderer.invoke('assistant:resetTelemetry'),
   getEvents: () => ipcRenderer.invoke('events:get'),

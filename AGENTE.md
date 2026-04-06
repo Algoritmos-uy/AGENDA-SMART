@@ -1,43 +1,88 @@
-Algoritmos-uy: hemos trabajado la agenda y llegamos a una buena version.
-Que puedes sugerirme para agregarle un apartado de chat con IA, utilizando API-KEY deepseek?
+# AGENDA SMART CON ASISTENTE IA
 
-GitHub Copilot: Podemos añadir un panel de “Asistente” en la misma app. Te propongo un camino simple y seguro:
+## Mensaje sugerido sobre la actualización
 
-## Propuesta rápida
+> **Nueva actualización disponible de Agenda Inteligente** 🚀  
+> Hemos mejorado la estabilidad general, la experiencia de recordatorios y el rendimiento de CoordinalIA para gestión de eventos y consultas generales.  
+> **Próxima actualización en camino:** estaremos incorporando el **intercambio por voz** para interactuar con CoordinalIA de forma más rápida y natural.
 
-- **UI**: Sección lateral o pestaña “Asistente” con:
-  - Historial de mensajes (burbujas).
-  - Textarea + botón enviar.
-  - Selector corto de modo (ej. “Resumen de eventos”, “Crear evento”, “Libre”).
-- **Flujo**:
-  - El renderer manda mensajes a un endpoint local (`/api/chat`) o a `ipc` en Electron.
-  - El backend (puede ser un pequeño server Node embebido o un módulo en main) llama a la API de DeepSeek con la API key.
-  - Respuesta stream para ver el texto aparecer progresivamente.
-- **Seguridad**:
-  - No guardar la API key en el cliente; leerla de variable de entorno (`DEEPSEEK_API_KEY`) o archivo `.env` fuera del bundle.
-  - No exponerla en preload; solo el main hace la llamada.
-- **Contexto útil**:
-  - Enviar como “sistema” un resumen de eventos próximos (título/fecha/hora) si el usuario quiere pedir reprogramaciones o listados.
-  - Límite de mensajes y truncado de historial para no inflar tokens.
-- **MVP técnico**:
-  1. Añadir en `main` un handler IPC `assistant:chat` que reciba `{ messages: [{role, content}] }` y llame a DeepSeek (fetch).
-  2. Exponer en `preload` una función `chat(messages)` que usa `ipcRenderer.invoke`.
-  3. En el renderer, UI básica de chat + gestión de estado + scroll.
-  4. Manejar errores y mostrar “Sin conexión / clave inválida”.
-- **Streaming (opcional pero recomendable)**:
-  - Usar la API de DeepSeek con `stream: true` y reenviar chunks al renderer vía `ipc` (`assistant:chunk`) para mejor UX.
+Versión alternativa corta (redes o banner):
 
-## Pasos concretos que puedo implementar ya
+> Agenda Inteligente sigue creciendo: más estabilidad, mejor experiencia con CoordinalIA y muy pronto **interacción por voz**.
 
-1. Crear `src/main/assistant.js` con la llamada HTTP a DeepSeek usando `DEEPSEEK_API_KEY`.
-2. Wirear IPC en main.js y preload.js (función `appBridge.chat`).
-3. Añadir en `src/js/assistant.js` la UI (panel simple, lista de mensajes, form de envío) y montarlo en index.html.
-4. Incluir un pequeño “prompt” de sistema para que el asistente entienda la agenda (p. ej. “Eres el asistente de Agenda Inteligente; responde breve…”).
+---
 
-Si te parece bien, dime si prefieres:
+## Mini checklist operativa para testing (pre-lanzamiento)
 
-- Solo texto (sin streaming), o
-- Con streaming incremental,
-  y si quieres que pase contexto de los eventos guardados.
+### 1) Smoke test funcional (15–20 min)
 
-A
+- [ ] Abrir app en frío y validar carga sin errores.
+- [ ] Crear evento manual (sin hora fin) y verificar autocompletado `+60 min`.
+- [ ] Crear evento con CoordinalIA usando `duración 90 minutos` y validar hora fin.
+- [ ] Editar y eliminar evento.
+- [ ] Confirmar alertas 30/15 (audio + modal + detener + posponer 2 min).
+
+### 2) Persistencia y recuperación
+
+- [ ] Cerrar/reabrir app y validar que eventos siguen presentes.
+- [ ] Verificar que configuración de CoordinalIA (proveedor/TTS) persiste.
+- [ ] Validar que historial del chat se mantiene.
+
+### 3) Calidad técnica mínima
+
+- [ ] `lint` en verde.
+- [ ] tests unitarios en verde.
+- [ ] build web en verde.
+- [ ] build Android debug/release en verde.
+
+### 4) UX y compatibilidad
+
+- [ ] Probar en al menos 2 tamaños de pantalla Android.
+- [ ] Revisar textos i18n críticos (ES/EN/PT).
+- [ ] Verificar iconos/logos/audio cargando desde `assets`.
+
+### 5) Criterio para pasar a testing con usuarios reales
+
+- [ ] 0 bloqueos críticos (crash).
+- [ ] 0 pérdida de datos de eventos en flujo normal.
+- [ ] 0 errores bloqueantes en creación/edición de eventos.
+
+---
+
+## Lista de 10 pasos para llegar a Google Play Store
+
+1. **Congelar versión candidata**  
+   Definir `versionName` y `versionCode` final para la release.
+
+2. **Ejecutar quality gates finales**  
+   Lint, tests, build web y build Android release sin errores.
+
+3. **Generar artefacto de publicación**  
+   Compilar `AAB` release (`app-release.aab`) para Play Console.
+
+4. **Verificar firma**  
+   Confirmar keystore correcta y trazabilidad de la clave de firma.
+
+5. **Preparar ficha de tienda**  
+   Título, descripción corta/larga, categoría, email/URL de soporte.
+
+6. **Preparar assets de Store Listing**  
+   Ícono, capturas (teléfono/tablet), banner gráfico (si aplica).
+
+7. **Completar políticas obligatorias**  
+   Privacidad de datos, permisos usados, sección de seguridad de datos y clasificación de contenido.
+
+8. **Subir AAB a track interno/cerrado**  
+   Crear release en **Internal testing** o **Closed testing** y agregar testers.
+
+9. **Monitorear feedback y crash reports**  
+   Corregir issues críticos detectados por testers reales.
+
+10. **Promover a producción**  
+    Publicar cuando métricas sean estables (sin crashes críticos, flujo principal validado, feedback favorable).
+
+---
+
+### Nota operativa recomendada
+
+Antes de promover a producción, mantener al menos **3–7 días** de testing cerrado con usuarios reales para detectar problemas de uso real (red, dispositivos lentos, permisos, horarios/recordatorios).

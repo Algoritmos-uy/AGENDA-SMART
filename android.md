@@ -18,7 +18,7 @@ Esta guía deja el proyecto listo para generar APK/AAB Android usando **Capacito
 
 - Node.js 18+ (recomendado LTS)
 - Android Studio (última estable)
-- JDK 17 (recomendado por Android Gradle Plugin actual)
+- JDK 21 (recomendado para Capacitor 7 + AGP 8.x en este proyecto)
 - SDK Android + Platform Tools + Build Tools
 
 ### Variables de entorno (Windows)
@@ -136,10 +136,33 @@ Salida típica:
 ### Crear keystore (una sola vez)
 
 ```powershell
-keytool -genkeypair -v -keystore agenda-smart-release.keystore -alias agenda-smart -keyalg RSA -keysize 2048 -validity 10000
+keytool -genkeypair -v -keystore agenda-smart-release.jks -alias agenda-smart -keyalg RSA -keysize 2048 -validity 10000
 ```
 
 Guarda el keystore fuera del repo o en una ruta segura.
+
+### Configurar `keystore.properties` para firmado automático
+
+En `android/` crea `keystore.properties` a partir de `keystore.properties.example`:
+
+```properties
+storeFile=C:/ruta/segura/agenda-smart-release.jks
+storePassword=TU_STORE_PASSWORD
+keyAlias=agenda-smart
+keyPassword=TU_KEY_PASSWORD
+```
+
+> `keystore.properties` está ignorado por git para no exponer secretos.
+
+### Build release por terminal (recomendado CI/local)
+
+Desde raíz del proyecto:
+
+```powershell
+npm run build:android:release:signed
+```
+
+Si no existe `keystore.properties`, el build release continúa pero se genera **unsigned**.
 
 ### Configurar firma en Android Studio
 
@@ -210,7 +233,7 @@ Luego en Android Studio:
 
 ### Error: Java/Gradle incompatible
 
-- Usa JDK 17 y Gradle compatible con la versión del Android Gradle Plugin.
+- Usa JDK 21 y Gradle compatible con la versión del Android Gradle Plugin.
 
 ### No reconoce `npx cap`
 
@@ -231,13 +254,66 @@ npx cap sync android
 
 ---
 
-## 10) Checklist de “listo para publicar”
+## 10) Checklist final de subida a Play Console
 
-- [ ] `package.json` en versión release correcta
-- [ ] `npm run lint` OK
-- [ ] `npm run test` OK
-- [ ] `npm run build` OK
-- [ ] `npx cap sync android` OK
-- [ ] Prueba en dispositivo físico OK
-- [ ] AAB firmado generado
-- [ ] Notas de versión/documentación actualizadas
+### A) Pre-flight técnico (antes de generar el AAB)
+
+- [ ] `versionName` y `versionCode` actualizados en `android/app/build.gradle`.
+- [ ] Misma keystore de releases anteriores (si la app ya existe en Play).
+- [ ] `npm run lint` sin errores.
+- [ ] `npm run test` sin errores.
+- [ ] `npm run build` completado.
+- [ ] `npx cap sync android` completado.
+- [ ] Prueba en dispositivo físico real (arranque, navegación, formularios, notificaciones, voz si aplica).
+
+### B) Build de release firmada
+
+- [ ] `android/keystore.properties` presente y con `storeFile` válido (preferir `/` en la ruta).
+- [ ] Ejecutado:
+
+```powershell
+npm run build:android:release:signed
+```
+
+- [ ] Artefacto AAB generado:
+  - `android/app/build/outputs/bundle/release/app-release.aab`
+- [ ] Verificación de firma del AAB:
+
+```powershell
+jarsigner -verify -certs "android/app/build/outputs/bundle/release/app-release.aab"
+```
+
+- [ ] Resultado esperado: `jar verified.`
+
+### C) Play Console (subida)
+
+- [ ] App seleccionada correcta en Play Console.
+- [ ] Track elegido:
+  - [ ] Internal testing (recomendado)
+  - [ ] Closed testing
+  - [ ] Production
+- [ ] Subido `app-release.aab` correcto.
+- [ ] Sin errores bloqueantes de compatibilidad/políticas.
+- [ ] Notas de versión cargadas (ES/EN/PT si corresponde).
+
+### D) Cumplimiento y ficha de tienda
+
+- [ ] Data safety actualizado (si cambió algo de datos/permisos).
+- [ ] Declaraciones de permisos sensibles actualizadas (micrófono, etc.).
+- [ ] Política de privacidad vigente y URL válida (si aplica).
+- [ ] Clasificación de contenido al día.
+
+### E) Lanzamiento y verificación posterior
+
+- [ ] Release guardado y enviado a revisión/publicación.
+- [ ] Testers internos confirman instalación y arranque.
+- [ ] Se valida versión instalada en dispositivo desde Play.
+- [ ] Monitoreo inicial de crashes/ANRs en Play Console.
+
+### Gate final (Go/No-Go)
+
+- [ ] AAB firmado + validado
+- [ ] Versionado correcto
+- [ ] Pruebas básicas OK
+- [ ] Checklist de Play completo
+- [ ] Aprobado para publicar

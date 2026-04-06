@@ -1,5 +1,5 @@
 const { app, BrowserWindow, Menu, shell, ipcMain, Tray, session } = require('electron');
-const { callAssistant, callAssistantStream, transcribeAudio } = require('./assistant');
+const { callAssistant, callAssistantStream, transcribeAudio, synthesizeSpeech } = require('./assistant');
 const telemetry = require('./assistantTelemetry');
 const { isAutoStartSupported, isAutoStartLaunch } = require('./autoStartUtils');
 const store = require('./backgroundStore');
@@ -148,6 +148,10 @@ ipcMain.handle('assistant:chatStream', async (event, payload = {}) => {
 ipcMain.handle('assistant:transcribeAudio', async (_event, payload = {}) => {
   const { provider = 'openai', language = 'es', mimeType = 'audio/webm', audioBuffer } = payload;
   return transcribeAudio({ audioBuffer, mimeType, language }, { provider });
+});
+ipcMain.handle('assistant:synthesizeSpeech', async (_event, payload = {}) => {
+  const { text = '', provider, language = 'es', voice, format = 'mp3' } = payload;
+  return synthesizeSpeech({ text, language, voice, format }, { provider });
 });
 ipcMain.handle('assistant:getTelemetry', async () => telemetry.getSnapshot());
 ipcMain.handle('assistant:resetTelemetry', async () => {

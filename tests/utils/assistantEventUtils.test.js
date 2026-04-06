@@ -103,4 +103,57 @@ describe('assistantEventUtils', () => {
     expect(ok.data.end).toBe('15:00');
     expect(ok.data.autoCompletedEnd).toBe(true);
   });
+
+  it('usa duration_minutes para autocompletar end cuando el asistente la envía', () => {
+    const ok = validateEventPayload({
+      title: 'Planificación',
+      date: '2026-04-07',
+      start: '10:00',
+      duration_minutes: 90,
+    });
+
+    expect(ok.ok).toBe(true);
+    expect(ok.data.end).toBe('11:30');
+    expect(ok.data.autoCompletedEnd).toBe(true);
+    expect(ok.data.autoDurationMinutes).toBe(90);
+  });
+
+  it('acepta duration en texto como "90 minutos" y calcula end', () => {
+    const ok = validateEventPayload({
+      title: 'Seguimiento',
+      date: '2026-04-08',
+      start: '16:00',
+      duration: '90 minutos',
+    });
+
+    expect(ok.ok).toBe(true);
+    expect(ok.data.end).toBe('17:30');
+    expect(ok.data.autoDurationMinutes).toBe(90);
+  });
+
+  it('acepta duración natural "hora y media" y calcula end', () => {
+    const ok = validateEventPayload({
+      title: 'Demo IA',
+      date: '2026-04-09',
+      start: '09:00',
+      duration: 'hora y media',
+    });
+
+    expect(ok.ok).toBe(true);
+    expect(ok.data.end).toBe('10:30');
+    expect(ok.data.autoDurationMinutes).toBe(90);
+  });
+
+  it('acepta formato mixto "1h30m" para duración', () => {
+    const ok = validateEventPayload({
+      title: 'Pairing',
+      date: '2026-04-10',
+      start: '14:00',
+      duration: '1h30m',
+    });
+
+    expect(ok.ok).toBe(true);
+    expect(ok.data.end).toBe('15:30');
+    expect(ok.data.autoDurationMinutes).toBe(90);
+  });
 });

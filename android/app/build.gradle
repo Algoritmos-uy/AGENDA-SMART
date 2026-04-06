@@ -1,0 +1,88 @@
+apply plugin: 'com.android.application'
+
+import java.util.Properties
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+def hasReleaseSigning = false
+
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+    def required = ['storeFile', 'storePassword', 'keyAlias', 'keyPassword']
+    hasReleaseSigning = required.every { key ->
+        def value = keystoreProperties[key]
+        value != null && String.valueOf(value).trim().length() > 0
+    }
+    if (hasReleaseSigning) {
+        def storePath = String.valueOf(keystoreProperties['storeFile'])
+        hasReleaseSigning = file(storePath).exists()
+    }
+}
+
+android {
+    namespace "com.algoritmia.agenda"
+    compileSdk libs.versions.compileSdk.get().toInteger()
+    defaultConfig {
+        applicationId "com.algoritmia.agenda"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile file(String.valueOf(keystoreProperties['storeFile']))
+                storePassword String.valueOf(keystoreProperties['storePassword'])
+                keyAlias String.valueOf(keystoreProperties['keyAlias'])
+                keyPassword String.valueOf(keystoreProperties['keyPassword'])
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            } else {
+                logger.lifecycle('[agenda-android] Release sin firma: falta android/keystore.properties o datos incompletos.')
+            }
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation libs.androidx.appcompat
+    implementation libs.androidx.coordinatorlayout
+    implementation libs.androidx.core.splashscreen
+    implementation project(':capacitor-android')
+    testImplementation libs.junit
+    androidTestImplementation libs.androidx.junit
+    androidTestImplementation libs.androidx.espresso.core
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

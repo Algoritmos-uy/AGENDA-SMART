@@ -15,6 +15,7 @@ import {
 import {
     detectAssistantRange,
     extractAssistantAction,
+    inferEndFromStart,
     toEventPayload,
     validateEventPayload
 } from './utils/assistantEventUtils.js';
@@ -85,12 +86,13 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     const assistantStatus = document.getElementById('assistant-status');
     const assistantSendBtn = document.getElementById('assistant-send');
     const assistantVoiceBtn = document.getElementById('assistant-voice');
+    const assistantTtsToggle = document.getElementById('assistant-tts-toggle');
     const assistantClearBtn = document.getElementById('assistant-clear');
 
     const ASSISTANT_STORE_KEY = 'coordinalia-thread';
     const ASSISTANT_TEXT = {
         es: {
-            prompt: 'Eres CoordinalIA, asistente de Agenda Inteligente. Tono: profesional y cercano, empático y claro. Responde breve, en español, y ayuda a gestionar eventos (crear, listar, reprogramar) con pasos concretos. Si falta la API key, indica de forma amable que se debe configurar una API key (DeepSeek u OpenAI). Si el usuario pide crear/agendar un evento y tienes título, fecha (YYYY-MM-DD), inicio (HH:mm) y fin (HH:mm), responde con un único bloque JSON plano con la forma {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","description":"...","color":"#2563eb"}. No uses más texto fuera del JSON. Si falta algún dato, pídele al usuario solo ese dato faltante.',
+            prompt: 'Eres CoordinalIA, asistente de Agenda Inteligente. Tono: profesional y cercano, empático y claro. Responde breve, en español, y ayuda a gestionar eventos (crear, listar, reprogramar) con pasos concretos. Si falta la API key, indica de forma amable que se debe configurar una API key (DeepSeek u OpenAI). Si el usuario pide crear/agendar un evento y tienes título, fecha (YYYY-MM-DD) e inicio (HH:mm), responde con un único bloque JSON plano con la forma {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. end es opcional; si no está, se calcula con duration_minutes (si viene) o por defecto +60 min desde start. Si el usuario dice “duración 90 minutos”, usa duration_minutes: 90. No uses más texto fuera del JSON. Si falta algún dato, pídele al usuario solo ese dato faltante.',
             welcome: 'Hola, soy CoordinalIA. Estoy aquí para ayudarte con tu agenda: crear, consultar o reprogramar eventos de forma rápida. ¿En qué te apoyo?',
             noEvents: {
                 today: 'No hay eventos para hoy.',
@@ -104,7 +106,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             }
         },
         en: {
-            prompt: 'You are CoordinalIA, assistant of Smart Agenda. Tone: professional yet friendly and clear. Reply briefly in English and help manage events (create, list, reschedule) with concrete steps. If the API key is missing, politely say an API key (DeepSeek or OpenAI) must be configured. If the user asks to create/schedule an event and you have title, date (YYYY-MM-DD), start (HH:mm), end (HH:mm), answer with a single plain JSON block: {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","description":"...","color":"#2563eb"}. Do not add extra text outside JSON. If a field is missing, ask only for that missing field.',
+            prompt: 'You are CoordinalIA, assistant of Smart Agenda. Tone: professional yet friendly and clear. Reply briefly in English and help manage events (create, list, reschedule) with concrete steps. If the API key is missing, politely say an API key (DeepSeek or OpenAI) must be configured. If the user asks to create/schedule an event and you have title, date (YYYY-MM-DD), and start (HH:mm), answer with a single plain JSON block: {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. end is optional; if missing, compute it with duration_minutes (when provided) or default to start +60 min. If user says “duration 90 minutes”, set duration_minutes: 90. Do not add extra text outside JSON. If a field is missing, ask only for that missing field.',
             welcome: "Hi, I'm CoordinalIA. I can help you create, check, or reschedule events quickly. How can I help?",
             noEvents: {
                 today: 'No events for today.',
@@ -118,7 +120,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             }
         },
         pt: {
-            prompt: 'Você é a CoordinalIA, assistente da Agenda Inteligente. Tom: profissional e próximo, claro e empático. Responda de forma breve, em português, ajudando a gerir eventos (criar, listar, reagendar) com passos concretos. Se faltar a API key, avise gentilmente que é preciso configurar uma API key (DeepSeek ou OpenAI). Se o usuário pedir para criar/agendar um evento e você tiver título, data (AAAA-MM-DD), início (HH:mm) e fim (HH:mm), responda com um único JSON simples: {"action":"create_event","title":"...","date":"AAAA-MM-DD","start":"HH:mm","end":"HH:mm","description":"...","color":"#2563eb"}. Não adicione texto fora do JSON. Se faltar algum campo, peça apenas esse campo faltante.',
+            prompt: 'Você é a CoordinalIA, assistente da Agenda Inteligente. Tom: profissional e próximo, claro e empático. Responda de forma breve, em português, ajudando a gerir eventos (criar, listar, reagendar) com passos concretos. Se faltar a API key, avise gentilmente que é preciso configurar uma API key (DeepSeek ou OpenAI). Se o usuário pedir para criar/agendar um evento e você tiver título, data (AAAA-MM-DD) e início (HH:mm), responda com um único JSON simples: {"action":"create_event","title":"...","date":"AAAA-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. end é opcional; se faltar, calcule com duration_minutes (quando vier) ou padrão +60 min a partir de start. Se o usuário disser “duração 90 minutos”, use duration_minutes: 90. Não adicione texto fora do JSON. Se faltar algum campo, peça apenas esse campo faltante.',
             welcome: 'Olá, sou a CoordinalIA. Posso ajudar a criar, consultar ou reagendar eventos rapidamente. Como posso ajudar?',
             noEvents: {
                 today: 'Sem eventos para hoje.',
@@ -154,6 +156,8 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     let assistantRecorder = null;
     let assistantRecorderChunks = [];
     let assistantRecorderStream = null;
+    let assistantTtsAudio = null;
+    let assistantTtsEnabled = true;
     let assistantVoiceMode = 'recognition';
     const ASSISTANT_VOICE_MAX_RETRIES = 2;
 
@@ -171,6 +175,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             submitBtn.textContent = eventIdInput?.value ? tr('form.update') : tr('form.save');
         }
         renderAssistantProviderBtn();
+        renderAssistantTtsToggle();
         updateVoiceUi();
     }
 
@@ -179,9 +184,10 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             const raw = localStorage.getItem(ASSISTANT_CONFIG_KEY);
             const parsed = raw ? JSON.parse(raw) : {};
             const provider = ASSISTANT_PROVIDERS[parsed.provider]?.id || 'deepseek';
-            return { provider };
+            const ttsEnabled = parsed.ttsEnabled !== false;
+            return { provider, ttsEnabled };
         } catch (_e) {
-            return { provider: 'deepseek' };
+            return { provider: 'deepseek', ttsEnabled: true };
         }
     }
 
@@ -196,7 +202,26 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     function getAssistantConfig() {
         const cfg = loadAssistantConfig();
         assistantProvider = cfg.provider;
+        assistantTtsEnabled = cfg.ttsEnabled !== false;
         return cfg;
+    }
+
+    function renderAssistantTtsToggle() {
+        if (!assistantTtsToggle) return;
+        assistantTtsToggle.checked = !!assistantTtsEnabled;
+        assistantTtsToggle.title = assistantTtsEnabled
+            ? tr('assistant.ttsToggleTitleOn')
+            : tr('assistant.ttsToggleTitleOff');
+    }
+
+    function handleAssistantTtsToggle() {
+        if (!assistantTtsToggle) return;
+        assistantTtsEnabled = !!assistantTtsToggle.checked;
+        const cfg = getAssistantConfig();
+        cfg.ttsEnabled = assistantTtsEnabled;
+        saveAssistantConfig(cfg);
+        renderAssistantTtsToggle();
+        setAssistantStatus(assistantTtsEnabled ? tr('assistant.ttsOn') : tr('assistant.ttsOff'));
     }
 
     function renderAssistantProviderBtn() {
@@ -246,6 +271,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
     getAssistantConfig();
     renderAssistantProviderBtn();
+    renderAssistantTtsToggle();
     loadAssistantHistory();
 
         form.addEventListener('submit', handleSubmit);
@@ -304,8 +330,11 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     // Crear o actualizar eventos desde el formulario.
     function handleSubmit(event) {
         event.preventDefault();
-    const payload = getFormData();
+        const payload = getFormData();
         if (!payload) return;
+
+        const autoCompletedEnd = !!payload.autoCompletedEnd;
+        delete payload.autoCompletedEnd;
 
         const events = getEvents();
         if (payload.id) {
@@ -313,11 +342,17 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             if (index !== -1) {
                 events[index] = payload;
             }
-            setStatus(tr('form.statusEventUpdated'), 'success');
+            const message = autoCompletedEnd
+                ? `${tr('form.statusEventUpdated')} ${tr('form.statusAutoEnd', { end: payload.end })}`
+                : tr('form.statusEventUpdated');
+            setStatus(message, 'success');
         } else {
             payload.id = generateId();
             events.push(payload);
-            setStatus(tr('form.statusEventSaved'), 'success');
+            const message = autoCompletedEnd
+                ? `${tr('form.statusEventSaved')} ${tr('form.statusAutoEnd', { end: payload.end })}`
+                : tr('form.statusEventSaved');
+            setStatus(message, 'success');
         }
         saveEvents(events);
         resetForm();
@@ -365,24 +400,34 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         const title = titleInput.value.trim();
         const date = dateInput.value;
         const start = startInput.value;
-        const end = endInput.value;
+        let end = endInput.value.trim();
         const description = descInput.value.trim();
         const color = colorInput.value || '#2563eb';
         const id = eventIdInput.value || null;
-    const reminderSeconds = getReminderSecondsFromForm();
-    if (reminderSeconds === null) return null;
+        const reminderSeconds = getReminderSecondsFromForm();
+        if (reminderSeconds === null) return null;
 
-        if (!title || !date || !start || !end) {
+        let autoCompletedEnd = false;
+        if (!end && start) {
+            const inferredEnd = inferEndFromStart(start, 60);
+            if (inferredEnd) {
+                end = inferredEnd;
+                autoCompletedEnd = true;
+                if (endInput) endInput.value = inferredEnd;
+            }
+        }
+
+        if (!title || !date || !start) {
             setStatus(tr('form.statusRequired'), 'danger');
             return null;
         }
 
-        if (end <= start) {
+        if (!end || end <= start) {
             setStatus(tr('form.statusEndAfterStart'), 'danger');
             return null;
         }
 
-        return { id, title, date, start, end, description, color, reminder_offset: reminderSeconds };
+        return { id, title, date, start, end, description, color, reminder_offset: reminderSeconds, autoCompletedEnd };
     }
 
     // Muestra mensajes de estado contextuales.
@@ -837,6 +882,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
         assistantForm?.addEventListener('submit', handleAssistantSubmit);
         setupAssistantVoice();
+    assistantTtsToggle?.addEventListener('change', handleAssistantTtsToggle);
         assistantClearBtn?.addEventListener('click', clearAssistantThread);
     }
 
@@ -930,6 +976,72 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             setAssistantStatus(tr('assistant.textCapturedSending'));
             assistantForm?.requestSubmit?.();
         }, 650);
+    }
+
+    function base64ToUint8Array(base64 = '') {
+        const clean = String(base64 || '').trim();
+        if (!clean) return new Uint8Array();
+        const normalized = clean.includes(',') ? clean.split(',').pop() : clean;
+        const binary = window.atob(normalized);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+            bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes;
+    }
+
+    async function speakAssistantText(text = '') {
+        const speechText = String(text || '').trim();
+        if (!assistantTtsEnabled || !speechText || !window.appBridge?.synthesizeSpeech) return;
+
+        try {
+            const cfg = getAssistantConfig();
+            setAssistantStatus(tr('assistant.synthesizing'));
+            const result = await window.appBridge.synthesizeSpeech({
+                text: speechText,
+                provider: cfg.provider,
+                language: getVoiceLang(assistantLocale),
+                format: 'mp3'
+            });
+
+            const bytes = base64ToUint8Array(result?.audioBase64 || '');
+            if (!bytes.length) {
+                throw new Error('EMPTY_TTS_AUDIO');
+            }
+
+            if (assistantTtsAudio) {
+                assistantTtsAudio.pause();
+                assistantTtsAudio = null;
+            }
+
+            const blob = new Blob([bytes], { type: result?.mimeType || 'audio/mpeg' });
+            const url = URL.createObjectURL(blob);
+            assistantTtsAudio = new Audio(url);
+            assistantTtsAudio.onended = () => URL.revokeObjectURL(url);
+            assistantTtsAudio.onerror = () => URL.revokeObjectURL(url);
+            await assistantTtsAudio.play();
+            setAssistantStatus('');
+        } catch (e) {
+            const raw = String(e?.message || '');
+            const quotaOrBillingIssue = /(\b402\b|insufficient|quota|billing|payment required|credit)/i.test(raw);
+            if (quotaOrBillingIssue && assistantTtsEnabled) {
+                assistantTtsEnabled = false;
+                const cfg = getAssistantConfig();
+                cfg.ttsEnabled = false;
+                saveAssistantConfig(cfg);
+                renderAssistantTtsToggle();
+                setAssistantStatus(tr('assistant.ttsAutoDisabledQuota'));
+                return;
+            }
+
+            const msg = /NO_TTS_API_KEY|FISH_API_KEY|OPENAI_API_KEY/i.test(e?.message || '')
+                ? tr('assistant.ttsApiKey')
+                : /TTS error|EMPTY_TTS_AUDIO/i.test(e?.message || '')
+                    ? tr('assistant.ttsError', { error: (e.message || '').slice(0, 120) })
+                    : tr('assistant.ttsFailed');
+            console.warn('No se pudo reproducir TTS', e);
+            setAssistantStatus(msg);
+        }
     }
 
     async function ensureAssistantMicrophonePermission() {
@@ -1049,7 +1161,17 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
                     submitAssistantFromVoice();
                 } catch (e) {
                     console.warn('Fallo transcripción de audio', e);
-                    const msg = /NO_STT_API_KEY|OPENAI_API_KEY/i.test(e?.message || '')
+                    const raw = String(e?.message || '');
+                    const quotaOrBillingIssue = /(\b402\b|insufficient|quota|billing|payment required|credit|saldo)/i.test(raw);
+                    if (quotaOrBillingIssue) {
+                        assistantVoiceMode = 'recognition';
+                        assistantListening = false;
+                        updateVoiceUi();
+                        setAssistantStatus(tr('assistant.sttAutoFallbackRecognition'));
+                        return;
+                    }
+
+                    const msg = /NO_STT_API_KEY|OPENAI_API_KEY|FISH_API_KEY/i.test(e?.message || '')
                         ? tr('assistant.transcribeApiKey')
                         : /STT error/i.test(e?.message || '')
                             ? tr('assistant.transcribeError', { error: (e.message || '').slice(0, 120) })
@@ -1106,6 +1228,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     function openAssistantModal() {
         assistantModal.classList.remove('is-hidden');
         assistantModal.querySelector('.modal__dialog')?.focus?.();
+        setAssistantStatus(tr('assistant.scopeHint'));
         if (!assistantMessages.length) {
             appendAssistantMessage({
                 role: 'assistant',
@@ -1128,7 +1251,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         assistantMessages.length = 0;
         saveAssistantHistory();
         renderAssistantMessages();
-        setAssistantStatus('');
+        setAssistantStatus(tr('assistant.scopeHint'));
         if (assistantInput) assistantInput.value = '';
     }
 
@@ -1149,6 +1272,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             const list = getEventsByRange(quickRange);
             const reply = formatAssistantEvents(list, quickRange);
             appendAssistantMessage({ role: 'assistant', content: reply });
+            await speakAssistantText(reply);
             setAssistantStatus('');
             setAssistantBusy(false);
             scrollAssistantBottom();
@@ -1222,6 +1346,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
                 assistantMsg.content = finalReply || tr('assistant.noResponse');
                 renderAssistantMessages();
             }
+            await speakAssistantText(assistantMsg.content);
             handleAssistantAction(assistantMsg.content);
             setAssistantStatus('');
         } catch (err) {
@@ -1292,7 +1417,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         appendAssistantMessage({ role: 'assistant', content: confirmText });
 
         if (validation?.data?.autoCompletedEnd) {
-            const autoText = tr('assistant.autoEnd', { end: evt.end });
+            const autoText = tr('assistant.autoEnd', { end: evt.end, minutes: validation?.data?.autoDurationMinutes || 60 });
             appendAssistantMessage({ role: 'assistant', content: autoText });
         }
     }

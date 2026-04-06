@@ -23,5 +23,6 @@ function copyDir(src, dest) {
 fs.rmSync(to('.'), { recursive: true, force: true });
 fs.mkdirSync(to('.'), { recursive: true });
 fs.copyFileSync(from('index.html'), to('index.html'));
+copyDir(from('assets'), to('assets'));
 copyDir(from('src'), to('src'));
 console.log('Build web listo en /www');

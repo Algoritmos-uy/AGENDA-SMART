@@ -69,7 +69,7 @@
                         <input type="time" id="start" name="start" required>
 
                         <label class="control" for="end" data-i18n="form.fieldEnd">Fin</label>
-                        <input type="time" id="end" name="end" required>
+                        <input type="time" id="end" name="end">
                     </div>
                     <div class="form__row">
                         <label class="control" for="description" data-i18n="form.fieldDescription">Descripción</label>
@@ -188,6 +188,10 @@
                         <div class="assistant-form__actions">
                             <span id="assistant-status" class="muted" role="status" aria-live="polite"></span>
                             <div class="assistant-form__buttons">
+                                <label class="assistant-toggle" for="assistant-tts-toggle" title="Activar/desactivar voz de respuesta" data-i18n-title="assistant.ttsToggleTitleOn">
+                                    <input id="assistant-tts-toggle" type="checkbox" checked>
+                                    <span data-i18n="assistant.ttsToggle">Voz IA</span>
+                                </label>
                                 <button class="btn btn--ghost" id="assistant-voice" type="button" title="Activar micrófono" data-i18n-title="assistant.voiceTitle" data-i18n="assistant.voiceButton">🎤 Hablar</button>
                                 <button class="btn btn--ghost" id="assistant-clear" type="button" data-i18n="assistant.clear">Vaciar chat</button>
                                 <button class="btn btn--primary" id="assistant-send" type="submit" data-i18n="assistant.send">Enviar</button>

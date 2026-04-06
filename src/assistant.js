@@ -22,6 +22,23 @@ const PROVIDERS = {
 
 const OPENAI_TRANSCRIBE_URL = process.env.OPENAI_TRANSCRIBE_API_URL || 'https://api.openai.com/v1/audio/transcriptions';
 const OPENAI_TRANSCRIBE_MODEL = process.env.OPENAI_STT_MODEL || 'gpt-4o-mini-transcribe';
+const OPENAI_TTS_URL = process.env.OPENAI_TTS_API_URL || 'https://api.openai.com/v1/audio/speech';
+const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
+
+const FISH_API_URL = process.env.FISH_API_URL || '';
+const FISH_STT_URL = process.env.FISH_STT_API_URL || joinUrl(FISH_API_URL, '/v1/audio/transcriptions');
+const FISH_TTS_URL = process.env.FISH_TTS_API_URL || joinUrl(FISH_API_URL, '/v1/audio/speech');
+const FISH_STT_MODEL = process.env.FISH_STT_MODEL || 'sensevoice';
+const FISH_TTS_MODEL = process.env.FISH_TTS_MODEL || 'speech-1';
+const FISH_DEFAULT_VOICE = process.env.FISH_TTS_VOICE || 'alloy';
+
+function joinUrl(base = '', suffix = '') {
+  const b = String(base || '').trim().replace(/\/+$/, '');
+  if (!b) return '';
+  const s = String(suffix || '').trim().replace(/^\/+/, '');
+  if (!s) return b;
+  return `${b}/${s}`;
+}
 
 function loadLocalEnv() {
   const candidates = [
@@ -70,9 +87,19 @@ function resolveProviderConfig({ provider = 'deepseek', model, apiUrl } = {}) {
 }
 
 function resolveTranscribeConfig() {
+  const fishKey = process.env.FISH_API_KEY;
+  if (fishKey && FISH_STT_URL) {
+    return {
+      provider: 'fish',
+      apiKey: fishKey,
+      apiUrl: FISH_STT_URL,
+      model: FISH_STT_MODEL,
+    };
+  }
+
   const openaiKey = process.env.OPENAI_API_KEY;
   if (!openaiKey) {
-    const err = new Error('Falta OPENAI_API_KEY para transcripción de voz');
+    const err = new Error('Falta OPENAI_API_KEY o FISH_API_KEY para transcripción de voz');
     err.code = 'NO_STT_API_KEY';
     throw err;
   }
@@ -83,6 +110,36 @@ function resolveTranscribeConfig() {
     apiUrl: OPENAI_TRANSCRIBE_URL,
     model: OPENAI_TRANSCRIBE_MODEL,
   };
+}
+
+function resolveTtsConfig({ provider } = {}) {
+  const selected = provider || process.env.VOICE_PROVIDER || '';
+  const fishKey = process.env.FISH_API_KEY;
+  const openaiKey = process.env.OPENAI_API_KEY;
+
+  if ((selected === 'fish' || (!selected && fishKey)) && fishKey && FISH_TTS_URL) {
+    return {
+      provider: 'fish',
+      apiKey: fishKey,
+      apiUrl: FISH_TTS_URL,
+      model: FISH_TTS_MODEL,
+      voice: FISH_DEFAULT_VOICE,
+    };
+  }
+
+  if (openaiKey) {
+    return {
+      provider: 'openai',
+      apiKey: openaiKey,
+      apiUrl: OPENAI_TTS_URL,
+      model: OPENAI_TTS_MODEL,
+      voice: 'alloy',
+    };
+  }
+
+  const err = new Error('Falta OPENAI_API_KEY o FISH_API_KEY para síntesis de voz');
+  err.code = 'NO_TTS_API_KEY';
+  throw err;
 }
 
 async function callAssistant(messages = [], options = {}) {
@@ -232,7 +289,7 @@ async function callAssistantStream(messages = [], { onChunk, ...options } = {}) 
 }
 
 async function transcribeAudio(payload = {}, options = {}) {
-  const { provider = 'openai' } = options;
+  const { provider } = options;
   void provider;
   const { apiKey, apiUrl, model } = resolveTranscribeConfig();
 
@@ -267,6 +324,7 @@ async function transcribeAudio(payload = {}, options = {}) {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
+      'X-API-Key': apiKey,
     },
     body: form,
   });
@@ -295,4 +353,83 @@ async function transcribeAudio(payload = {}, options = {}) {
   return text;
 }
 
-module.exports = { callAssistant, callAssistantStream, transcribeAudio };
+function decodeAudioFromJson(data = {}) {
+  const audioBase64 = data?.audio_base64
+    || data?.audioBase64
+    || data?.audio
+    || data?.data?.audio
+    || data?.result?.audio
+    || '';
+  const mimeType = data?.mime_type
+    || data?.mimeType
+    || data?.format
+    || 'audio/mpeg';
+
+  if (!audioBase64) return null;
+  return {
+    audioBase64: String(audioBase64),
+    mimeType: String(mimeType || 'audio/mpeg'),
+  };
+}
+
+async function synthesizeSpeech(payload = {}, options = {}) {
+  const { text = '', language = 'es', voice, format = 'mp3' } = payload;
+  const cleanText = String(text || '').trim();
+  if (!cleanText) {
+    const err = new Error('Texto vacío para síntesis de voz');
+    err.code = 'EMPTY_TTS_TEXT';
+    throw err;
+  }
+
+  const cfg = resolveTtsConfig(options);
+  const body = {
+    model: cfg.model,
+    input: cleanText,
+    voice: voice || cfg.voice,
+    format,
+    language: language.startsWith('pt') ? 'pt' : language.startsWith('en') ? 'en' : 'es',
+  };
+
+  const res = await fetch(cfg.apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${cfg.apiKey}`,
+      'X-API-Key': cfg.apiKey,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const textError = await res.text().catch(() => '');
+    const err = new Error(`TTS error ${res.status}: ${textError}`);
+    err.code = 'TTS_ERROR';
+    throw err;
+  }
+
+  const contentType = String(res.headers.get('content-type') || '').toLowerCase();
+
+  if (contentType.startsWith('audio/')) {
+    const buffer = Buffer.from(await res.arrayBuffer());
+    return {
+      provider: cfg.provider,
+      mimeType: contentType.split(';')[0],
+      audioBase64: buffer.toString('base64'),
+    };
+  }
+
+  const data = await res.json().catch(() => ({}));
+  const decoded = decodeAudioFromJson(data);
+  if (decoded) {
+    return {
+      provider: cfg.provider,
+      ...decoded,
+    };
+  }
+
+  const err = new Error('Respuesta de TTS sin audio utilizable');
+  err.code = 'EMPTY_TTS_AUDIO';
+  throw err;
+}
+
+module.exports = { callAssistant, callAssistantStream, transcribeAudio, synthesizeSpeech };

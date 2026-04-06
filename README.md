@@ -77,6 +77,24 @@ Variables disponibles:
 - `OPENAI_API_KEY` (obligatoria si usas proveedor OpenAI; también para transcripción de voz backend/STT)
 - `OPENAI_TRANSCRIBE_API_URL` (opcional)
 - `OPENAI_STT_MODEL` (opcional)
+- `OPENAI_TTS_API_URL` (opcional)
+- `OPENAI_TTS_MODEL` (opcional)
+- `FISH_API_KEY` (opcional; si está configurada se prioriza para STT/TTS)
+- `FISH_API_URL` (opcional; base URL para endpoints de audio)
+- `FISH_STT_API_URL` (opcional)
+- `FISH_TTS_API_URL` (opcional)
+- `FISH_STT_MODEL` (opcional)
+- `FISH_TTS_MODEL` (opcional)
+- `FISH_TTS_VOICE` (opcional)
+
+### Pruebas STT/TTS con opción gratuita (Fish)
+
+Si en `.env` defines `FISH_API_KEY` y `FISH_API_URL`, el flujo de voz intentará usar Fish para:
+
+- **STT**: transcribir audio grabado desde el modal de CoordinalIA.
+- **TTS**: sintetizar y reproducir en voz alta la respuesta del asistente.
+
+Si Fish no está disponible, el backend hace fallback a OpenAI cuando existe `OPENAI_API_KEY`.
 
 ## Novedades recientes (abril 2026)
 
