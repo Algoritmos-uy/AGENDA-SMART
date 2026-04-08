@@ -146,7 +146,7 @@ ipcMain.handle('assistant:chatStream', async (event, payload = {}) => {
   return callAssistantStream(messages, { onChunk: sendChunk, provider, retry });
 });
 ipcMain.handle('assistant:transcribeAudio', async (_event, payload = {}) => {
-  const { provider = 'openai', language = 'es', mimeType = 'audio/webm', audioBuffer } = payload;
+  const { provider = 'deepseek', language = 'es', mimeType = 'audio/webm', audioBuffer } = payload;
   return transcribeAudio({ audioBuffer, mimeType, language }, { provider });
 });
 ipcMain.handle('assistant:synthesizeSpeech', async (_event, payload = {}) => {

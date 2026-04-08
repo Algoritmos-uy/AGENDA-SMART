@@ -10,7 +10,6 @@ const state = {
   retries: 0,
   byProvider: {
     deepseek: { requests: 0, successes: 0, failures: 0, timeouts: 0 },
-    openai: { requests: 0, successes: 0, failures: 0, timeouts: 0 },
   },
   recent: [],
 };

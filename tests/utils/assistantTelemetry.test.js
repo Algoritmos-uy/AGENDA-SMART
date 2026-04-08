@@ -30,13 +30,13 @@ describe('assistantTelemetry', () => {
   });
 
   it('registra fallos y timeouts', () => {
-    const timeoutCtx = telemetry.beginAttempt({ provider: 'openai', mode: 'chat' });
+    const timeoutCtx = telemetry.beginAttempt({ provider: 'deepseek', mode: 'chat' });
     const timeoutErr = new Error('request timeout');
     timeoutErr.name = 'AbortError';
     timeoutErr.code = 'ABORT_ERR';
     telemetry.failAttempt(timeoutCtx, timeoutErr);
 
-    const failCtx = telemetry.beginAttempt({ provider: 'openai', mode: 'chat', retry: true });
+    const failCtx = telemetry.beginAttempt({ provider: 'deepseek', mode: 'chat', retry: true });
     const err = new Error('bad gateway');
     err.code = 'API_ERROR';
     telemetry.failAttempt(failCtx, err);
@@ -46,6 +46,6 @@ describe('assistantTelemetry', () => {
     expect(snap.failures).toBe(2);
     expect(snap.timeouts).toBe(1);
     expect(snap.retries).toBe(1);
-    expect(snap.byProvider.openai.timeouts).toBe(1);
+    expect(snap.byProvider.deepseek.timeouts).toBe(1);
   });
 });

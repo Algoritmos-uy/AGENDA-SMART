@@ -92,7 +92,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     const ASSISTANT_STORE_KEY = 'coordinalia-thread';
     const ASSISTANT_TEXT = {
         es: {
-            prompt: 'Eres CoordinalIA, asistente de Agenda Inteligente. Tono: profesional y cercano, empático y claro. Responde breve, en español, y ayuda a gestionar eventos (crear, listar, reprogramar) con pasos concretos. Si falta la API key, indica de forma amable que se debe configurar una API key (DeepSeek u OpenAI). Si el usuario pide crear/agendar un evento y tienes título, fecha (YYYY-MM-DD) e inicio (HH:mm), responde con un único bloque JSON plano con la forma {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. end es opcional; si no está, se calcula con duration_minutes (si viene) o por defecto +60 min desde start. Si el usuario dice “duración 90 minutos”, usa duration_minutes: 90. No uses más texto fuera del JSON. Si falta algún dato, pídele al usuario solo ese dato faltante.',
+            prompt: 'Eres CoordinalIA, asistente de Agenda Inteligente. Tono: profesional y cercano, empático y claro. Responde breve, en español, y ayuda a gestionar eventos (crear, listar, reprogramar) con pasos concretos. Si falta la API key, indica de forma amable que se debe configurar DEEPSEEK_API_KEY. Si el usuario pide crear/agendar un evento y tienes título, fecha (YYYY-MM-DD) e inicio (HH:mm), responde con un único bloque JSON plano con la forma {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. end es opcional; si no está, se calcula con duration_minutes (si viene) o por defecto +60 min desde start. Si el usuario dice “duración 90 minutos”, usa duration_minutes: 90. No uses más texto fuera del JSON. Si falta algún dato, pídele al usuario solo ese dato faltante.',
             welcome: 'Hola, soy CoordinalIA. Estoy aquí para ayudarte con tu agenda: crear, consultar o reprogramar eventos de forma rápida. ¿En qué te apoyo?',
             noEvents: {
                 today: 'No hay eventos para hoy.',
@@ -106,7 +106,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             }
         },
         en: {
-            prompt: 'You are CoordinalIA, assistant of Smart Agenda. Tone: professional yet friendly and clear. Reply briefly in English and help manage events (create, list, reschedule) with concrete steps. If the API key is missing, politely say an API key (DeepSeek or OpenAI) must be configured. If the user asks to create/schedule an event and you have title, date (YYYY-MM-DD), and start (HH:mm), answer with a single plain JSON block: {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. end is optional; if missing, compute it with duration_minutes (when provided) or default to start +60 min. If user says “duration 90 minutes”, set duration_minutes: 90. Do not add extra text outside JSON. If a field is missing, ask only for that missing field.',
+            prompt: 'You are CoordinalIA, assistant of Smart Agenda. Tone: professional yet friendly and clear. Reply briefly in English and help manage events (create, list, reschedule) with concrete steps. If the API key is missing, politely say DEEPSEEK_API_KEY must be configured. If the user asks to create/schedule an event and you have title, date (YYYY-MM-DD), and start (HH:mm), answer with a single plain JSON block: {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. end is optional; if missing, compute it with duration_minutes (when provided) or default to start +60 min. If user says “duration 90 minutes”, set duration_minutes: 90. Do not add extra text outside JSON. If a field is missing, ask only for that missing field.',
             welcome: "Hi, I'm CoordinalIA. I can help you create, check, or reschedule events quickly. How can I help?",
             noEvents: {
                 today: 'No events for today.',
@@ -120,7 +120,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             }
         },
         pt: {
-            prompt: 'Você é a CoordinalIA, assistente da Agenda Inteligente. Tom: profissional e próximo, claro e empático. Responda de forma breve, em português, ajudando a gerir eventos (criar, listar, reagendar) com passos concretos. Se faltar a API key, avise gentilmente que é preciso configurar uma API key (DeepSeek ou OpenAI). Se o usuário pedir para criar/agendar um evento e você tiver título, data (AAAA-MM-DD) e início (HH:mm), responda com um único JSON simples: {"action":"create_event","title":"...","date":"AAAA-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. end é opcional; se faltar, calcule com duration_minutes (quando vier) ou padrão +60 min a partir de start. Se o usuário disser “duração 90 minutos”, use duration_minutes: 90. Não adicione texto fora do JSON. Se faltar algum campo, peça apenas esse campo faltante.',
+            prompt: 'Você é a CoordinalIA, assistente da Agenda Inteligente. Tom: profissional e próximo, claro e empático. Responda de forma breve, em português, ajudando a gerir eventos (criar, listar, reagendar) com passos concretos. Se faltar a API key, avise gentilmente que é preciso configurar DEEPSEEK_API_KEY. Se o usuário pedir para criar/agendar um evento e você tiver título, data (AAAA-MM-DD) e início (HH:mm), responda com um único JSON simples: {"action":"create_event","title":"...","date":"AAAA-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. end é opcional; se faltar, calcule com duration_minutes (quando vier) ou padrão +60 min a partir de start. Se o usuário disser “duração 90 minutos”, use duration_minutes: 90. Não adicione texto fora do JSON. Se faltar algum campo, peça apenas esse campo faltante.',
             welcome: 'Olá, sou a CoordinalIA. Posso ajudar a criar, consultar ou reagendar eventos rapidamente. Como posso ajudar?',
             noEvents: {
                 today: 'Sem eventos para hoje.',
@@ -137,8 +137,11 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
     const ASSISTANT_CONFIG_KEY = 'coordinalia-config';
     const ASSISTANT_PROVIDERS = {
-        deepseek: { id: 'deepseek', label: 'DeepSeek' },
-        openai: { id: 'openai', label: 'OpenAI' }
+        deepseek: { id: 'deepseek', label: 'DeepSeek' }
+    };
+    const ASSISTANT_TTS_PROVIDERS = {
+        auto: { id: 'auto' },
+        elevenlabs: { id: 'elevenlabs' },
     };
 
     const assistantMessages = [];
@@ -158,6 +161,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     let assistantRecorderStream = null;
     let assistantTtsAudio = null;
     let assistantTtsEnabled = true;
+    let assistantTtsProvider = 'auto';
     let assistantVoiceMode = 'recognition';
     const ASSISTANT_VOICE_MAX_RETRIES = 2;
 
@@ -185,9 +189,10 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             const parsed = raw ? JSON.parse(raw) : {};
             const provider = ASSISTANT_PROVIDERS[parsed.provider]?.id || 'deepseek';
             const ttsEnabled = parsed.ttsEnabled !== false;
-            return { provider, ttsEnabled };
+            const ttsProvider = ASSISTANT_TTS_PROVIDERS[parsed.ttsProvider]?.id || 'auto';
+            return { provider, ttsEnabled, ttsProvider };
         } catch (_e) {
-            return { provider: 'deepseek', ttsEnabled: true };
+            return { provider: 'deepseek', ttsEnabled: true, ttsProvider: 'auto' };
         }
     }
 
@@ -203,6 +208,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         const cfg = loadAssistantConfig();
         assistantProvider = cfg.provider;
         assistantTtsEnabled = cfg.ttsEnabled !== false;
+        assistantTtsProvider = cfg.ttsProvider || 'auto';
         return cfg;
     }
 
@@ -234,10 +240,10 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         const current = assistantProvider || 'deepseek';
         const cfg = getAssistantConfig();
         if (!force) return { provider: current };
-        const prov = current === 'deepseek' ? 'openai' : 'deepseek';
-        cfg.provider = prov;
+    const prov = 'deepseek';
+    cfg.provider = 'deepseek';
         saveAssistantConfig(cfg);
-        assistantProvider = prov;
+    assistantProvider = 'deepseek';
         renderAssistantProviderBtn();
         return { provider: prov };
     }
@@ -999,7 +1005,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             setAssistantStatus(tr('assistant.synthesizing'));
             const result = await window.appBridge.synthesizeSpeech({
                 text: speechText,
-                provider: cfg.provider,
+                provider: assistantTtsProvider || cfg.ttsProvider || 'auto',
                 language: getVoiceLang(assistantLocale),
                 format: 'mp3'
             });
@@ -1034,7 +1040,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
                 return;
             }
 
-            const msg = /NO_TTS_API_KEY|FISH_API_KEY|OPENAI_API_KEY/i.test(e?.message || '')
+            const msg = /NO_TTS_API_KEY|ELEVENLABS_API_KEY/i.test(e?.message || '')
                 ? tr('assistant.ttsApiKey')
                 : /TTS error|EMPTY_TTS_AUDIO/i.test(e?.message || '')
                     ? tr('assistant.ttsError', { error: (e.message || '').slice(0, 120) })
@@ -1162,6 +1168,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
                 } catch (e) {
                     console.warn('Fallo transcripción de audio', e);
                     const raw = String(e?.message || '');
+                    const errCode = String(e?.code || '');
                     const quotaOrBillingIssue = /(\b402\b|insufficient|quota|billing|payment required|credit|saldo)/i.test(raw);
                     if (quotaOrBillingIssue) {
                         assistantVoiceMode = 'recognition';
@@ -1171,9 +1178,15 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
                         return;
                     }
 
-                    const msg = /NO_STT_API_KEY|OPENAI_API_KEY|FISH_API_KEY/i.test(e?.message || '')
-                        ? tr('assistant.transcribeApiKey')
-                        : /STT error/i.test(e?.message || '')
+                    if (/NO_STT_API_KEY/i.test(errCode) || /NO_STT_API_KEY/i.test(raw)) {
+                        assistantVoiceMode = 'recognition';
+                        assistantListening = false;
+                        updateVoiceUi();
+                        setAssistantStatus(tr('assistant.transcribeApiKey'));
+                        return;
+                    }
+
+                    const msg = /STT error/i.test(e?.message || '')
                             ? tr('assistant.transcribeError', { error: (e.message || '').slice(0, 120) })
                             : tr('assistant.transcribeRecordedFail');
                     setAssistantStatus(msg);
@@ -1346,8 +1359,12 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
                 assistantMsg.content = finalReply || tr('assistant.noResponse');
                 renderAssistantMessages();
             }
-            await speakAssistantText(assistantMsg.content);
-            handleAssistantAction(assistantMsg.content);
+            const actionResult = handleAssistantAction(assistantMsg.content, { messageRef: assistantMsg });
+            if (actionResult?.handled) {
+                await speakAssistantText(actionResult.spokenText || '');
+            } else {
+                await speakAssistantText(assistantMsg.content);
+            }
             setAssistantStatus('');
         } catch (err) {
             console.error('assistant error', err);
@@ -1391,14 +1408,20 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         return [...base, ...history];
     }
 
-    function handleAssistantAction(content = '') {
+    function handleAssistantAction(content = '', { messageRef } = {}) {
         const action = extractAssistantAction(content);
-        if (!action || action.action !== 'create_event') return;
+        if (!action || action.action !== 'create_event') return { handled: false };
 
         const validation = validateEventPayload(action, assistantLocale);
         if (!validation.ok) {
-            appendAssistantMessage({ role: 'assistant', content: validation.error });
-            return;
+            if (messageRef) {
+                messageRef.content = validation.error;
+                renderAssistantMessages();
+                saveAssistantHistory();
+            } else {
+                appendAssistantMessage({ role: 'assistant', content: validation.error });
+            }
+            return { handled: true, spokenText: validation.error };
         }
 
         const evt = toEventPayload(validation.data);
@@ -1414,12 +1437,22 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             start: evt.start,
             end: evt.end,
         });
-        appendAssistantMessage({ role: 'assistant', content: confirmText });
+        let finalText = confirmText;
 
         if (validation?.data?.autoCompletedEnd) {
             const autoText = tr('assistant.autoEnd', { end: evt.end, minutes: validation?.data?.autoDurationMinutes || 60 });
-            appendAssistantMessage({ role: 'assistant', content: autoText });
+            finalText = `${confirmText}\n${autoText}`;
         }
+
+        if (messageRef) {
+            messageRef.content = finalText;
+            renderAssistantMessages();
+            saveAssistantHistory();
+        } else {
+            appendAssistantMessage({ role: 'assistant', content: finalText });
+        }
+
+        return { handled: true, spokenText: finalText };
     }
 
     function buildAssistantContext() {

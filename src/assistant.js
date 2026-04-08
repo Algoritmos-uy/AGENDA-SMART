@@ -12,25 +12,15 @@ const PROVIDERS = {
     defaultModel: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
     defaultUrl: process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com/v1/chat/completions',
   },
-  openai: {
-    id: 'openai',
-    envKey: 'OPENAI_API_KEY',
-    defaultModel: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
-    defaultUrl: process.env.OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions',
-  },
 };
 
-const OPENAI_TRANSCRIBE_URL = process.env.OPENAI_TRANSCRIBE_API_URL || 'https://api.openai.com/v1/audio/transcriptions';
-const OPENAI_TRANSCRIBE_MODEL = process.env.OPENAI_STT_MODEL || 'gpt-4o-mini-transcribe';
-const OPENAI_TTS_URL = process.env.OPENAI_TTS_API_URL || 'https://api.openai.com/v1/audio/speech';
-const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
-
-const FISH_API_URL = process.env.FISH_API_URL || '';
-const FISH_STT_URL = process.env.FISH_STT_API_URL || joinUrl(FISH_API_URL, '/v1/audio/transcriptions');
-const FISH_TTS_URL = process.env.FISH_TTS_API_URL || joinUrl(FISH_API_URL, '/v1/audio/speech');
-const FISH_STT_MODEL = process.env.FISH_STT_MODEL || 'sensevoice';
-const FISH_TTS_MODEL = process.env.FISH_TTS_MODEL || 'speech-1';
-const FISH_DEFAULT_VOICE = process.env.FISH_TTS_VOICE || 'alloy';
+const ELEVENLABS_API_URL = process.env.ELEVENLABS_API_URL || 'https://api.elevenlabs.io/v1';
+const ELEVENLABS_TTS_URL = process.env.ELEVENLABS_TTS_API_URL || joinUrl(ELEVENLABS_API_URL, '/text-to-speech');
+const ELEVENLABS_TTS_MODEL = process.env.ELEVENLABS_TTS_MODEL || 'eleven_v3';
+const ELEVENLABS_DEFAULT_VOICE = process.env.ELEVENLABS_TTS_VOICE || 'JBFqnCBsd6RMkjVDRZzb';
+const ELEVENLABS_DEFAULT_OUTPUT = process.env.ELEVENLABS_TTS_OUTPUT_FORMAT || 'mp3_44100_128';
+const ELEVENLABS_STT_URL = process.env.ELEVENLABS_STT_API_URL || joinUrl(ELEVENLABS_API_URL, '/speech-to-text');
+const ELEVENLABS_STT_MODEL = process.env.ELEVENLABS_STT_MODEL || 'scribe_v1';
 
 function joinUrl(base = '', suffix = '') {
   const b = String(base || '').trim().replace(/\/+$/, '');
@@ -87,59 +77,48 @@ function resolveProviderConfig({ provider = 'deepseek', model, apiUrl } = {}) {
 }
 
 function resolveTranscribeConfig() {
-  const fishKey = process.env.FISH_API_KEY;
-  if (fishKey && FISH_STT_URL) {
-    return {
-      provider: 'fish',
-      apiKey: fishKey,
-      apiUrl: FISH_STT_URL,
-      model: FISH_STT_MODEL,
-    };
-  }
-
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (!openaiKey) {
-    const err = new Error('Falta OPENAI_API_KEY o FISH_API_KEY para transcripción de voz');
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  if (!apiKey || !ELEVENLABS_STT_URL) {
+    const err = new Error('Falta ELEVENLABS_API_KEY para transcripción de voz');
     err.code = 'NO_STT_API_KEY';
     throw err;
   }
-
   return {
-    provider: 'openai',
-    apiKey: openaiKey,
-    apiUrl: OPENAI_TRANSCRIBE_URL,
-    model: OPENAI_TRANSCRIBE_MODEL,
+    provider: 'elevenlabs',
+    apiKey,
+    apiUrl: ELEVENLABS_STT_URL,
+    model: ELEVENLABS_STT_MODEL,
   };
 }
 
-function resolveTtsConfig({ provider } = {}) {
-  const selected = provider || process.env.VOICE_PROVIDER || '';
-  const fishKey = process.env.FISH_API_KEY;
-  const openaiKey = process.env.OPENAI_API_KEY;
+function normalizeTtsProvider(value = '') {
+  const raw = String(value || '').toLowerCase().trim();
+  if (raw === '11labs') return 'elevenlabs';
+  if (raw === 'auto' || raw === 'elevenlabs') return raw;
+  return 'auto';
+}
 
-  if ((selected === 'fish' || (!selected && fishKey)) && fishKey && FISH_TTS_URL) {
-    return {
-      provider: 'fish',
-      apiKey: fishKey,
-      apiUrl: FISH_TTS_URL,
-      model: FISH_TTS_MODEL,
-      voice: FISH_DEFAULT_VOICE,
-    };
+function isTtsProviderAvailable(provider = 'auto') {
+  if (provider === 'elevenlabs') {
+    return !!process.env.ELEVENLABS_API_KEY && !!ELEVENLABS_TTS_URL;
   }
+  return false;
+}
 
-  if (openaiKey) {
-    return {
-      provider: 'openai',
-      apiKey: openaiKey,
-      apiUrl: OPENAI_TTS_URL,
-      model: OPENAI_TTS_MODEL,
-      voice: 'alloy',
-    };
+function resolveTtsProviders({ provider } = {}) {
+  const selected = normalizeTtsProvider(provider || process.env.VOICE_PROVIDER || 'auto');
+  const defaultOrder = ['elevenlabs'];
+  const ordered = selected === 'auto'
+    ? defaultOrder
+    : [selected, ...defaultOrder.filter((p) => p !== selected)];
+
+  const available = ordered.filter((p) => isTtsProviderAvailable(p));
+  if (!available.length) {
+    const err = new Error('Falta ELEVENLABS_API_KEY para síntesis de voz');
+    err.code = 'NO_TTS_API_KEY';
+    throw err;
   }
-
-  const err = new Error('Falta OPENAI_API_KEY o FISH_API_KEY para síntesis de voz');
-  err.code = 'NO_TTS_API_KEY';
-  throw err;
+  return available;
 }
 
 async function callAssistant(messages = [], options = {}) {
@@ -291,7 +270,7 @@ async function callAssistantStream(messages = [], { onChunk, ...options } = {}) 
 async function transcribeAudio(payload = {}, options = {}) {
   const { provider } = options;
   void provider;
-  const { apiKey, apiUrl, model } = resolveTranscribeConfig();
+  const { provider: sttProvider, apiKey, apiUrl, model } = resolveTranscribeConfig();
 
   const { audioBuffer, mimeType = 'audio/webm', language = 'es' } = payload || {};
   if (!audioBuffer) {
@@ -316,27 +295,31 @@ async function transcribeAudio(payload = {}, options = {}) {
 
   const blob = new Blob([bytes], { type: mimeType });
   const form = new FormData();
-  form.append('file', blob, `voice.${mimeType.includes('ogg') ? 'ogg' : 'webm'}`);
+  const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('wav') ? 'wav' : mimeType.includes('mp3') ? 'mp3' : 'webm';
+  form.append('file', blob, `voice.${ext}`);
+  form.append('model_id', model);
   form.append('model', model);
   form.append('language', language.startsWith('pt') ? 'pt' : language.startsWith('en') ? 'en' : 'es');
 
   const res = await fetch(apiUrl, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'X-API-Key': apiKey,
+      'xi-api-key': apiKey,
     },
     body: form,
   });
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    const err = new Error(`STT error ${res.status}: ${text}`);
+    const err = new Error(`${sttProvider} STT error ${res.status}: ${text}`);
     err.code = 'STT_ERROR';
     throw err;
   }
 
-  const data = await res.json();
+  const contentType = String(res.headers.get('content-type') || '').toLowerCase();
+  const data = contentType.includes('application/json')
+    ? await res.json().catch(() => ({}))
+    : await res.text().then((raw) => ({ text: raw })).catch(() => ({}));
 
   const text = (
     data?.text
@@ -381,54 +364,73 @@ async function synthesizeSpeech(payload = {}, options = {}) {
     throw err;
   }
 
-  const cfg = resolveTtsConfig(options);
-  const body = {
-    model: cfg.model,
-    input: cleanText,
-    voice: voice || cfg.voice,
-    format,
-    language: language.startsWith('pt') ? 'pt' : language.startsWith('en') ? 'en' : 'es',
-  };
+  const providers = resolveTtsProviders(options);
+  void language;
+  const errors = [];
 
-  const res = await fetch(cfg.apiUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${cfg.apiKey}`,
-      'X-API-Key': cfg.apiKey,
-    },
-    body: JSON.stringify(body),
-  });
+  for (const provider of providers) {
+    try {
+      let res;
+      if (provider === 'elevenlabs') {
+        const voiceId = voice || ELEVENLABS_DEFAULT_VOICE;
+        const outputFormat = format === 'mp3' ? ELEVENLABS_DEFAULT_OUTPUT : format;
+        const endpoint = `${joinUrl(ELEVENLABS_TTS_URL, `/${voiceId}`)}?output_format=${encodeURIComponent(outputFormat)}`;
+        const body = {
+          text: cleanText,
+          model_id: ELEVENLABS_TTS_MODEL,
+        };
+        res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'audio/mpeg',
+            'xi-api-key': process.env.ELEVENLABS_API_KEY,
+          },
+          body: JSON.stringify(body),
+        });
+      } else {
+        const err = new Error(`Proveedor TTS no soportado: ${provider}`);
+        err.code = 'TTS_ERROR';
+        throw err;
+      }
 
-  if (!res.ok) {
-    const textError = await res.text().catch(() => '');
-    const err = new Error(`TTS error ${res.status}: ${textError}`);
-    err.code = 'TTS_ERROR';
-    throw err;
+      if (!res.ok) {
+        const textError = await res.text().catch(() => '');
+        const err = new Error(`${provider} TTS error ${res.status}: ${textError}`);
+        err.code = 'TTS_ERROR';
+        throw err;
+      }
+
+      const contentType = String(res.headers.get('content-type') || '').toLowerCase();
+      if (contentType.startsWith('audio/')) {
+        const buffer = Buffer.from(await res.arrayBuffer());
+        return {
+          provider,
+          mimeType: contentType.split(';')[0],
+          audioBase64: buffer.toString('base64'),
+        };
+      }
+
+      const data = await res.json().catch(() => ({}));
+      const decoded = decodeAudioFromJson(data);
+      if (decoded) {
+        return {
+          provider,
+          ...decoded,
+        };
+      }
+
+      const err = new Error(`${provider} TTS: respuesta sin audio utilizable`);
+      err.code = 'EMPTY_TTS_AUDIO';
+      throw err;
+    } catch (e) {
+      errors.push(e);
+    }
   }
 
-  const contentType = String(res.headers.get('content-type') || '').toLowerCase();
-
-  if (contentType.startsWith('audio/')) {
-    const buffer = Buffer.from(await res.arrayBuffer());
-    return {
-      provider: cfg.provider,
-      mimeType: contentType.split(';')[0],
-      audioBase64: buffer.toString('base64'),
-    };
-  }
-
-  const data = await res.json().catch(() => ({}));
-  const decoded = decodeAudioFromJson(data);
-  if (decoded) {
-    return {
-      provider: cfg.provider,
-      ...decoded,
-    };
-  }
-
-  const err = new Error('Respuesta de TTS sin audio utilizable');
-  err.code = 'EMPTY_TTS_AUDIO';
+  const joined = errors.map((e) => e?.message || '').filter(Boolean).slice(0, 3).join(' | ');
+  const err = new Error(joined || 'TTS error: no se pudo sintetizar audio');
+  err.code = errors[errors.length - 1]?.code || 'TTS_ERROR';
   throw err;
 }
 
