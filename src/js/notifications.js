@@ -6,18 +6,22 @@ const MAX_DAYS_AHEAD = 7;           // Límite de programación futura
 const ALERT_LOOP_INTERVAL_MS = 10000;
 const ALERT_AUTO_STOP_MS = 3 * 60 * 1000;
 const ALERT_SNOOZE_MS = 2 * 60 * 1000;
-const ALERT_CONFIGS = [
-  {
-    minutesBefore: 30,
-    audioBase: '30',
-  },
-  {
-    minutesBefore: 15,
-    audioBase: '15',
-  },
-];
+const DEFAULT_REMINDER_MINUTES = 10;
+const ALERT_AUDIO_BASE_BY_MINUTES = new Map([
+  [30, '30'],
+  [15, '15'],
+]);
 
-function getAudioCandidates(base, locale = 'es') {
+const ALERT_VIBRATE_PATTERN = [250, 150, 250];
+
+function getSpeechLang(locale = 'es') {
+  const lang = normalizeLocale(locale);
+  if (lang === 'en') return 'en-US';
+  if (lang === 'pt') return 'pt-BR';
+  return 'es-ES';
+}
+
+export function getAudioCandidates(base, locale = 'es') {
   const lang = normalizeLocale(locale);
   if (lang === 'en') {
     return [
@@ -36,6 +40,15 @@ function getAudioCandidates(base, locale = 'es') {
   ];
 }
 
+export function getAlertSpeechText(locale = 'es', event = {}, minutesBefore = 10) {
+  return t(locale, 'notifications.alertVoiceMessage', {
+    title: event.title || t(locale, 'notifications.defaultEventTitle'),
+    minutes: minutesBefore,
+    start: event.start,
+    date: event.date,
+  });
+}
+
 export class Notifier {
   constructor() {
     this.timers = new Map();        // idEvento:minutos -> timeoutId
@@ -46,6 +59,7 @@ export class Notifier {
     this.alertLoopTimer = null;
     this.alertAutoStopTimer = null;
     this.alertModalEl = null;
+    this.activeAudio = null;
   }
 
   setLocale(locale = 'es') {
@@ -101,21 +115,24 @@ export class Notifier {
 
     this.cancelFor(event.id); // Evita duplicados
 
-    ALERT_CONFIGS.forEach(({ minutesBefore }) => {
-      const advanceMs = minutesBefore * 60 * 1000;
-      const fireAt = eventTime - advanceMs;
+    const reminderOffsetSeconds = Number(event?.reminder_offset);
+    const reminderMinutes = Number.isFinite(reminderOffsetSeconds) && reminderOffsetSeconds > 0
+      ? Math.max(1, Math.round(reminderOffsetSeconds / 60))
+      : DEFAULT_REMINDER_MINUTES;
 
-      // No programar si ya pasó o está demasiado lejos.
-      if (fireAt <= now || fireAt > maxAhead) return;
+    const advanceMs = reminderMinutes * 60 * 1000;
+    const fireAt = eventTime - advanceMs;
 
-      const timerKey = `${event.id}:${minutesBefore}`;
-      const timeoutId = window.setTimeout(() => {
-        this._notify(event, minutesBefore);
-        this.timers.delete(timerKey);
-      }, fireAt - now);
+    // No programar si ya pasó o está demasiado lejos.
+    if (fireAt <= now || fireAt > maxAhead) return;
 
-      this.timers.set(timerKey, timeoutId);
-    });
+    const timerKey = `${event.id}:${reminderMinutes}`;
+    const timeoutId = window.setTimeout(() => {
+      this._notify(event, reminderMinutes);
+      this.timers.delete(timerKey);
+    }, fireAt - now);
+
+    this.timers.set(timerKey, timeoutId);
   }
 
   // Reprograma todos los eventos (p.ej. tras render o CRUD).
@@ -153,10 +170,12 @@ export class Notifier {
     this.activeAlert = { key: alertKey, event, minutesBefore };
 
     this._showAlertModal(event, minutesBefore);
-    this._playAlertSound(minutesBefore);
+    this._playAlertSound(event, minutesBefore);
+    this._tryVibrate();
 
     this.alertLoopTimer = window.setInterval(() => {
-      this._playAlertSound(minutesBefore);
+      this._playAlertSound(event, minutesBefore);
+      this._tryVibrate();
     }, ALERT_LOOP_INTERVAL_MS);
 
     this.alertAutoStopTimer = window.setTimeout(() => {
@@ -175,6 +194,22 @@ export class Notifier {
     }
     if (this.alertModalEl?.parentNode) {
       this.alertModalEl.parentNode.removeChild(this.alertModalEl);
+    }
+    if (this.activeAudio) {
+      try {
+        this.activeAudio.pause();
+        this.activeAudio.currentTime = 0;
+      } catch (_e) {
+        // no-op
+      }
+      this.activeAudio = null;
+    }
+    if (window?.speechSynthesis) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (_e) {
+        // no-op
+      }
     }
     this.alertModalEl = null;
     this.activeAlert = null;
@@ -225,14 +260,55 @@ export class Notifier {
     this.alertModalEl = overlay;
   }
 
-  _playAlertSound(minutesBefore) {
-    const cfg = ALERT_CONFIGS.find((c) => c.minutesBefore === minutesBefore);
-    const paths = cfg?.audioBase ? getAudioCandidates(cfg.audioBase, this.locale) : [];
+  _isAndroidRuntime() {
+    const ua = String(navigator?.userAgent || '').toLowerCase();
+    const platform = String(window?.Capacitor?.getPlatform?.() || '').toLowerCase();
+    return platform === 'android' || ua.includes('android');
+  }
+
+  _tryVibrate() {
+    if (!this._isAndroidRuntime()) return;
+    if (!navigator?.vibrate) return;
+    try {
+      navigator.vibrate(ALERT_VIBRATE_PATTERN);
+    } catch (_e) {
+      // no-op
+    }
+  }
+
+  _playAlertSpeech(event, minutesBefore) {
+    if (!window?.speechSynthesis || typeof window.SpeechSynthesisUtterance !== 'function') return false;
+    if (window.speechSynthesis.speaking) return true;
+
+    const text = getAlertSpeechText(this.locale, event, minutesBefore);
+    const utterance = new window.SpeechSynthesisUtterance(text);
+    utterance.lang = getSpeechLang(this.locale);
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+
+    try {
+      window.speechSynthesis.speak(utterance);
+      return true;
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  _playAlertSound(event, minutesBefore) {
+    const audioBase = ALERT_AUDIO_BASE_BY_MINUTES.get(minutesBefore);
+    const paths = audioBase
+      ? getAudioCandidates(audioBase, this.locale)
+      : ['assets/audio/alerta.mp3'];
 
     const tryPlay = (index = 0) => {
-      if (index >= paths.length) return;
+      if (index >= paths.length) {
+        this._playAlertSpeech(event, minutesBefore);
+        return;
+      }
       const audio = new Audio(paths[index]);
       audio.preload = 'auto';
+      this.activeAudio = audio;
       audio.play().catch(() => tryPlay(index + 1));
     };
 

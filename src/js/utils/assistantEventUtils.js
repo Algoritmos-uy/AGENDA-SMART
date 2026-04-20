@@ -31,6 +31,23 @@ function normalizeLocale(locale = 'es') {
     return 'es';
 }
 
+export function normalizeAttendanceStatus(value = '', fallback = 'pending') {
+    const raw = String(value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+
+    if (!raw) return fallback;
+
+    if (/^(pending|pendiente|pendente|to_confirm|sin_confirmar)$/.test(raw)) return 'pending';
+    if (/^(confirmed|confirmado|confirmada|confirmar|accepted|aceptado|aceptada|yes|si|sim)$/.test(raw)) return 'confirmed';
+    if (/^(declined|decline|rechazado|rechazada|cancelado|cancelada|no)$/.test(raw)) return 'declined';
+    if (/^(tentative|tentativo|tentativa|maybe|tal\s+vez|tal_vez|quizas|quiza)$/.test(raw)) return 'tentative';
+
+    return fallback;
+}
+
 export function detectAssistantRange(text = '') {
     const t = text.toLowerCase();
     if (/(hoy|today|hoje)\b/.test(t)) return 'today';
@@ -67,6 +84,71 @@ function minutesToTime(totalMinutes = 0) {
     const h = Math.floor(safe / 60);
     const m = safe % 60;
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+export function getEventDurationMinutes(event = {}, fallback = 60) {
+    const startMinutes = toMinutes(String(event.start || ''));
+    const endMinutes = toMinutes(String(event.end || ''));
+    if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
+        return Math.max(1, Number(fallback) || 60);
+    }
+    return Math.max(1, endMinutes - startMinutes);
+}
+
+export function eventsOverlap(a = {}, b = {}) {
+    if (!a || !b) return false;
+    if (String(a.date || '') !== String(b.date || '')) return false;
+
+    const aStart = toMinutes(String(a.start || ''));
+    const aEnd = toMinutes(String(a.end || ''));
+    const bStart = toMinutes(String(b.start || ''));
+    const bEnd = toMinutes(String(b.end || ''));
+    if ([aStart, aEnd, bStart, bEnd].some(v => v === null)) return false;
+
+    return aStart < bEnd && bStart < aEnd;
+}
+
+export function findEventConflicts(candidate = {}, events = [], ignoreEventId = '') {
+    if (!candidate || !Array.isArray(events) || !events.length) return [];
+    return events.filter((ev) => {
+        if (!ev) return false;
+        if (ignoreEventId && String(ev.id || '') === String(ignoreEventId)) return false;
+        return eventsOverlap(candidate, ev);
+    });
+}
+
+export function suggestRescheduleSlots(candidate = {}, events = [], options = {}) {
+    const date = String(candidate.date || '').trim();
+    const start = String(candidate.start || '').trim();
+    if (!date || !start) return [];
+
+    const maxSuggestions = Math.max(1, Number(options.maxSuggestions) || 3);
+    const stepMinutes = Math.max(5, Number(options.stepMinutes) || 30);
+    const dayEndMinutes = Math.max(60, Number(options.dayEndMinutes) || (23 * 60 + 59));
+    const startMinutes = toMinutes(start);
+    if (startMinutes === null) return [];
+
+    const duration = getEventDurationMinutes(candidate, options.defaultDuration || 60);
+    const dateEvents = (Array.isArray(events) ? events : []).filter((ev) => {
+        if (!ev) return false;
+        if (options.ignoreEventId && String(ev.id || '') === String(options.ignoreEventId)) return false;
+        return String(ev.date || '') === date;
+    });
+
+    const out = [];
+    for (let cursor = startMinutes + stepMinutes; cursor + duration <= dayEndMinutes; cursor += stepMinutes) {
+        const slot = {
+            date,
+            start: minutesToTime(cursor),
+            end: minutesToTime(cursor + duration),
+        };
+
+        const hasConflict = dateEvents.some(ev => eventsOverlap(slot, ev));
+        if (hasConflict) continue;
+        out.push(slot);
+        if (out.length >= maxSuggestions) break;
+    }
+    return out;
 }
 
 function parseDurationMinutes(value, fallback = 60) {
@@ -199,6 +281,7 @@ export function toEventPayload(data) {
         end: data.end,
         description: data.description || '',
         color: data.color || '#2563eb',
-        reminder_offset
+        reminder_offset,
+        attendance: normalizeAttendanceStatus(data.attendance)
     };
 }

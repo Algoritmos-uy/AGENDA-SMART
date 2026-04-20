@@ -21,6 +21,14 @@ const ELEVENLABS_DEFAULT_VOICE = process.env.ELEVENLABS_TTS_VOICE || 'JBFqnCBsd6
 const ELEVENLABS_DEFAULT_OUTPUT = process.env.ELEVENLABS_TTS_OUTPUT_FORMAT || 'mp3_44100_128';
 const ELEVENLABS_STT_URL = process.env.ELEVENLABS_STT_API_URL || joinUrl(ELEVENLABS_API_URL, '/speech-to-text');
 const ELEVENLABS_STT_MODEL = process.env.ELEVENLABS_STT_MODEL || 'scribe_v1';
+const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1';
+const OPENAI_STT_URL = process.env.OPENAI_STT_API_URL || joinUrl(OPENAI_API_URL, '/audio/transcriptions');
+const OPENAI_STT_MODEL = process.env.OPENAI_STT_MODEL || 'gpt-4o-mini-transcribe';
+const OPENAI_TTS_URL = process.env.OPENAI_TTS_API_URL || joinUrl(OPENAI_API_URL, '/audio/speech');
+const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
+const OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE || 'shimmer';
+const GOOGLE_STT_URL = process.env.GOOGLE_STT_API_URL || 'https://speech.googleapis.com/v1/speech:recognize';
+const GOOGLE_TTS_URL = process.env.GOOGLE_TTS_API_URL || 'https://texttospeech.googleapis.com/v1/text:synthesize';
 
 function joinUrl(base = '', suffix = '') {
   const b = String(base || '').trim().replace(/\/+$/, '');
@@ -46,10 +54,12 @@ function loadLocalEnv() {
         if (!trimmed || trimmed.startsWith('#')) return;
         const eq = trimmed.indexOf('=');
         if (eq === -1) return;
-        const key = trimmed.slice(0, eq).trim();
+        const key = trimmed.slice(0, eq).trim().replace(/^\uFEFF/, '');
         const value = trimmed.slice(eq + 1).trim();
-        if (key && !(key in process.env)) {
-          process.env[key] = value;
+        const unquoted = value.replace(/^(["'])(.*)\1$/, '$2');
+        if (key) {
+          // Priorizar .env del proyecto para evitar usar credenciales obsoletas del entorno del sistema.
+          process.env[key] = unquoted;
         }
       });
       return; // ya cargado
@@ -76,8 +86,42 @@ function resolveProviderConfig({ provider = 'deepseek', model, apiUrl } = {}) {
   };
 }
 
-function resolveTranscribeConfig() {
-  const apiKey = process.env.ELEVENLABS_API_KEY;
+function normalizeSttProvider(value = '') {
+  const raw = String(value || '').toLowerCase().trim();
+  if (!raw || raw === 'auto') return 'elevenlabs';
+  if (['11labs', 'elevenlabs', 'eleven'].includes(raw)) return 'elevenlabs';
+  if (['openai', 'gpt-4o-mini-transcribe', 'gpt4o-mini-transcribe', 'gpt4o', 'gpt-4o'].includes(raw)) return 'openai';
+  if (['google', 'google-speech', 'google_speech', 'google speech'].includes(raw)) return 'google';
+  return 'elevenlabs';
+}
+
+function resolveTranscribeConfig(options = {}) {
+  const provider = normalizeSttProvider(options.provider || process.env.STT_PROVIDER || 'elevenlabs');
+
+  if (provider === 'openai') {
+    const apiKey = String(options.apiKey || process.env.OPENAI_API_KEY || '').trim();
+    const apiUrl = String(options.apiUrl || OPENAI_STT_URL).trim();
+    const model = String(options.model || OPENAI_STT_MODEL).trim();
+    if (!apiKey || !apiUrl) {
+      const err = new Error('Falta OPENAI_API_KEY para transcripción de voz');
+      err.code = 'NO_STT_API_KEY';
+      throw err;
+    }
+    return { provider: 'openai', apiKey, apiUrl, model };
+  }
+
+  if (provider === 'google') {
+    const apiKey = String(options.apiKey || process.env.GOOGLE_SPEECH_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+    const apiUrl = String(options.apiUrl || GOOGLE_STT_URL).trim();
+    if (!apiKey || !apiUrl) {
+      const err = new Error('Falta GOOGLE_SPEECH_API_KEY para transcripción de voz');
+      err.code = 'NO_STT_API_KEY';
+      throw err;
+    }
+    return { provider: 'google', apiKey, apiUrl, model: 'google-speech-v1' };
+  }
+
+  const apiKey = String(options.apiKey || process.env.ELEVENLABS_API_KEY || '').trim();
   if (!apiKey || !ELEVENLABS_STT_URL) {
     const err = new Error('Falta ELEVENLABS_API_KEY para transcripción de voz');
     err.code = 'NO_STT_API_KEY';
@@ -86,35 +130,47 @@ function resolveTranscribeConfig() {
   return {
     provider: 'elevenlabs',
     apiKey,
-    apiUrl: ELEVENLABS_STT_URL,
-    model: ELEVENLABS_STT_MODEL,
+    apiUrl: String(options.apiUrl || ELEVENLABS_STT_URL).trim(),
+    model: String(options.model || ELEVENLABS_STT_MODEL).trim(),
   };
 }
 
 function normalizeTtsProvider(value = '') {
   const raw = String(value || '').toLowerCase().trim();
   if (raw === '11labs') return 'elevenlabs';
+  if (['openai', 'gpt-4o-mini-tts', 'gpt4o-mini-tts'].includes(raw)) return 'openai';
+  if (['google', 'google-speech', 'google speech'].includes(raw)) return 'google';
   if (raw === 'auto' || raw === 'elevenlabs') return raw;
   return 'auto';
 }
 
-function isTtsProviderAvailable(provider = 'auto') {
+function isTtsProviderAvailable(provider = 'auto', options = {}) {
   if (provider === 'elevenlabs') {
-    return !!process.env.ELEVENLABS_API_KEY && !!ELEVENLABS_TTS_URL;
+    return !!String(options.elevenlabsApiKey || process.env.ELEVENLABS_API_KEY || '').trim() && !!ELEVENLABS_TTS_URL;
+  }
+  if (provider === 'openai') {
+    return !!String(options.openaiApiKey || process.env.OPENAI_API_KEY || '').trim() && !!OPENAI_TTS_URL;
+  }
+  if (provider === 'google') {
+    return !!String(options.googleApiKey || process.env.GOOGLE_SPEECH_API_KEY || process.env.GOOGLE_API_KEY || '').trim() && !!GOOGLE_TTS_URL;
   }
   return false;
 }
 
 function resolveTtsProviders({ provider } = {}) {
   const selected = normalizeTtsProvider(provider || process.env.VOICE_PROVIDER || 'auto');
-  const defaultOrder = ['elevenlabs'];
+  const defaultOrder = ['elevenlabs', 'openai', 'google'];
   const ordered = selected === 'auto'
     ? defaultOrder
     : [selected, ...defaultOrder.filter((p) => p !== selected)];
 
-  const available = ordered.filter((p) => isTtsProviderAvailable(p));
+  const available = ordered.filter((p) => isTtsProviderAvailable(p, {
+    elevenlabsApiKey: process.env.ELEVENLABS_API_KEY,
+    openaiApiKey: process.env.OPENAI_API_KEY,
+    googleApiKey: process.env.GOOGLE_SPEECH_API_KEY || process.env.GOOGLE_API_KEY,
+  }));
   if (!available.length) {
-    const err = new Error('Falta ELEVENLABS_API_KEY para síntesis de voz');
+    const err = new Error('Falta API key para síntesis de voz (ELEVENLABS_API_KEY, OPENAI_API_KEY o GOOGLE_SPEECH_API_KEY)');
     err.code = 'NO_TTS_API_KEY';
     throw err;
   }
@@ -268,9 +324,13 @@ async function callAssistantStream(messages = [], { onChunk, ...options } = {}) 
 }
 
 async function transcribeAudio(payload = {}, options = {}) {
-  const { provider } = options;
-  void provider;
-  const { provider: sttProvider, apiKey, apiUrl, model } = resolveTranscribeConfig();
+  const { provider, apiKey, apiUrl, model } = options;
+  const { provider: sttProvider, apiKey: resolvedKey, apiUrl: resolvedUrl, model: resolvedModel } = resolveTranscribeConfig({
+    provider,
+    apiKey,
+    apiUrl,
+    model,
+  });
 
   const { audioBuffer, mimeType = 'audio/webm', language = 'es' } = payload || {};
   if (!audioBuffer) {
@@ -293,21 +353,46 @@ async function transcribeAudio(payload = {}, options = {}) {
     throw err;
   }
 
-  const blob = new Blob([bytes], { type: mimeType });
-  const form = new FormData();
-  const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('wav') ? 'wav' : mimeType.includes('mp3') ? 'mp3' : 'webm';
-  form.append('file', blob, `voice.${ext}`);
-  form.append('model_id', model);
-  form.append('model', model);
-  form.append('language', language.startsWith('pt') ? 'pt' : language.startsWith('en') ? 'en' : 'es');
+  let res;
+  if (sttProvider === 'google') {
+    const base64Audio = Buffer.from(bytes).toString('base64');
+    const langCode = language.startsWith('pt') ? 'pt-BR' : language.startsWith('en') ? 'en-US' : 'es-ES';
+    const endpoint = `${resolvedUrl}${resolvedUrl.includes('?') ? '&' : '?'}key=${encodeURIComponent(resolvedKey)}`;
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        config: {
+          encoding: mimeType.includes('wav') ? 'LINEAR16' : mimeType.includes('ogg') ? 'OGG_OPUS' : 'WEBM_OPUS',
+          languageCode: langCode,
+          enableAutomaticPunctuation: true,
+        },
+        audio: {
+          content: base64Audio,
+        },
+      }),
+    });
+  } else {
+    const blob = new Blob([bytes], { type: mimeType });
+    const form = new FormData();
+    const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('wav') ? 'wav' : mimeType.includes('mp3') ? 'mp3' : 'webm';
+    form.append('file', blob, `voice.${ext}`);
+    form.append('model_id', resolvedModel);
+    form.append('model', resolvedModel);
+    form.append('language', language.startsWith('pt') ? 'pt' : language.startsWith('en') ? 'en' : 'es');
 
-  const res = await fetch(apiUrl, {
-    method: 'POST',
-    headers: {
-      'xi-api-key': apiKey,
-    },
-    body: form,
-  });
+    const headers = sttProvider === 'openai'
+      ? { Authorization: `Bearer ${resolvedKey}` }
+      : { 'xi-api-key': resolvedKey };
+
+    res = await fetch(resolvedUrl, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -324,6 +409,7 @@ async function transcribeAudio(payload = {}, options = {}) {
   const text = (
     data?.text
     || data?.transcript
+    || data?.results?.[0]?.alternatives?.[0]?.transcript
     || data?.result
     || ''
   ).trim();
@@ -388,6 +474,53 @@ async function synthesizeSpeech(payload = {}, options = {}) {
           },
           body: JSON.stringify(body),
         });
+      } else if (provider === 'openai') {
+        const apiKey = String(options.apiKey || process.env.OPENAI_API_KEY || '').trim();
+        if (!apiKey) {
+          const err = new Error('Falta OPENAI_API_KEY para TTS');
+          err.code = 'NO_TTS_API_KEY';
+          throw err;
+        }
+        const model = String(options.model || OPENAI_TTS_MODEL).trim();
+        const voiceId = String(voice || options.voice || OPENAI_TTS_VOICE).trim();
+        res = await fetch(String(options.apiUrl || OPENAI_TTS_URL).trim(), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            input: cleanText,
+            voice: voiceId,
+            format: format === 'mp3' ? 'mp3' : format,
+          }),
+        });
+      } else if (provider === 'google') {
+        const apiKey = String(options.apiKey || process.env.GOOGLE_SPEECH_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+        if (!apiKey) {
+          const err = new Error('Falta GOOGLE_SPEECH_API_KEY para TTS');
+          err.code = 'NO_TTS_API_KEY';
+          throw err;
+        }
+        const langCode = language.startsWith('pt') ? 'pt-BR' : language.startsWith('en') ? 'en-US' : 'es-ES';
+        const endpoint = `${String(options.apiUrl || GOOGLE_TTS_URL).trim()}?key=${encodeURIComponent(apiKey)}`;
+        res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            input: { text: cleanText },
+            voice: {
+              languageCode: langCode,
+              ssmlGender: 'FEMALE',
+            },
+            audioConfig: {
+              audioEncoding: 'MP3',
+            },
+          }),
+        });
       } else {
         const err = new Error(`Proveedor TTS no soportado: ${provider}`);
         err.code = 'TTS_ERROR';
@@ -417,6 +550,14 @@ async function synthesizeSpeech(payload = {}, options = {}) {
         return {
           provider,
           ...decoded,
+        };
+      }
+
+      if (provider === 'google' && data?.audioContent) {
+        return {
+          provider,
+          audioBase64: String(data.audioContent),
+          mimeType: 'audio/mpeg',
         };
       }
 

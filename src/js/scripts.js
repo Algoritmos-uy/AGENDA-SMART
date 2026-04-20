@@ -14,8 +14,11 @@ import {
 } from './utils/agendaDateUtils.js';
 import {
     detectAssistantRange,
+    findEventConflicts,
     extractAssistantAction,
     inferEndFromStart,
+    normalizeAttendanceStatus,
+    suggestRescheduleSlots,
     toEventPayload,
     validateEventPayload
 } from './utils/assistantEventUtils.js';
@@ -76,7 +79,6 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
     const clockEl = document.getElementById('live-clock');
     const assistantOpenBtn = document.getElementById('assistant-open');
-    const autoStartToggle = document.getElementById('autostart-toggle');
     const assistantModal = document.getElementById('assistant-modal');
     const assistantCloseBtn = document.getElementById('assistant-close');
     const assistantCloseFooterBtn = document.getElementById('assistant-close-footer');
@@ -92,7 +94,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     const ASSISTANT_STORE_KEY = 'coordinalia-thread';
     const ASSISTANT_TEXT = {
         es: {
-            prompt: 'Eres CoordinalIA, asistente de Agenda Inteligente. Tono: profesional y cercano, empático y claro. Responde breve, en español, y ayuda a gestionar eventos (crear, listar, reprogramar) con pasos concretos. Si falta la API key, indica de forma amable que se debe configurar DEEPSEEK_API_KEY. Si el usuario pide crear/agendar un evento y tienes título, fecha (YYYY-MM-DD) e inicio (HH:mm), responde con un único bloque JSON plano con la forma {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. end es opcional; si no está, se calcula con duration_minutes (si viene) o por defecto +60 min desde start. Si el usuario dice “duración 90 minutos”, usa duration_minutes: 90. No uses más texto fuera del JSON. Si falta algún dato, pídele al usuario solo ese dato faltante.',
+            prompt: 'Eres CoordinalIA, asistente de Agenda Inteligente. Tono: profesional y cercano, empático y claro. Responde breve, en español, y ayuda a gestionar eventos (crear, listar, reprogramar) con pasos concretos. Si falta la API key, indica de forma amable que se debe configurar DEEPSEEK_API_KEY. Para acciones operativas (crear, actualizar, reprogramar, eliminar o cambiar asistencia), responde con un único bloque JSON plano y sin texto adicional. Si el usuario pide crear/agendar un evento y tienes título, fecha (YYYY-MM-DD) e inicio (HH:mm), responde con la forma {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. Para eliminar usa {"action":"delete_event",...}. Para asistencia usa {"action":"set_attendance","attendance":"confirmed|tentative|declined|pending",...}. end es opcional; si no está, se calcula con duration_minutes (si viene) o por defecto +60 min desde start. Si el usuario dice “duración 90 minutos”, usa duration_minutes: 90. Si falta algún dato, pídele al usuario solo ese dato faltante.',
             welcome: 'Hola, soy CoordinalIA. Estoy aquí para ayudarte con tu agenda: crear, consultar o reprogramar eventos de forma rápida. ¿En qué te apoyo?',
             noEvents: {
                 today: 'No hay eventos para hoy.',
@@ -106,7 +108,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             }
         },
         en: {
-            prompt: 'You are CoordinalIA, assistant of Smart Agenda. Tone: professional yet friendly and clear. Reply briefly in English and help manage events (create, list, reschedule) with concrete steps. If the API key is missing, politely say DEEPSEEK_API_KEY must be configured. If the user asks to create/schedule an event and you have title, date (YYYY-MM-DD), and start (HH:mm), answer with a single plain JSON block: {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. end is optional; if missing, compute it with duration_minutes (when provided) or default to start +60 min. If user says “duration 90 minutes”, set duration_minutes: 90. Do not add extra text outside JSON. If a field is missing, ask only for that missing field.',
+            prompt: 'You are CoordinalIA, assistant of Smart Agenda. Tone: professional yet friendly and clear. Reply briefly in English and help manage events (create, list, reschedule) with concrete steps. If the API key is missing, politely say DEEPSEEK_API_KEY must be configured. For operational actions (create, update, reschedule, delete, or attendance changes), answer with a single plain JSON block and no extra text. If the user asks to create/schedule an event and you have title, date (YYYY-MM-DD), and start (HH:mm), answer with: {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. For delete use {"action":"delete_event",...}. For attendance use {"action":"set_attendance","attendance":"confirmed|tentative|declined|pending",...}. end is optional; if missing, compute it with duration_minutes (when provided) or default to start +60 min. If user says “duration 90 minutes”, set duration_minutes: 90. If a field is missing, ask only for that missing field.',
             welcome: "Hi, I'm CoordinalIA. I can help you create, check, or reschedule events quickly. How can I help?",
             noEvents: {
                 today: 'No events for today.',
@@ -120,7 +122,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             }
         },
         pt: {
-            prompt: 'Você é a CoordinalIA, assistente da Agenda Inteligente. Tom: profissional e próximo, claro e empático. Responda de forma breve, em português, ajudando a gerir eventos (criar, listar, reagendar) com passos concretos. Se faltar a API key, avise gentilmente que é preciso configurar DEEPSEEK_API_KEY. Se o usuário pedir para criar/agendar um evento e você tiver título, data (AAAA-MM-DD) e início (HH:mm), responda com um único JSON simples: {"action":"create_event","title":"...","date":"AAAA-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. end é opcional; se faltar, calcule com duration_minutes (quando vier) ou padrão +60 min a partir de start. Se o usuário disser “duração 90 minutos”, use duration_minutes: 90. Não adicione texto fora do JSON. Se faltar algum campo, peça apenas esse campo faltante.',
+            prompt: 'Você é a CoordinalIA, assistente da Agenda Inteligente. Tom: profissional e próximo, claro e empático. Responda de forma breve, em português, ajudando a gerir eventos (criar, listar, reagendar) com passos concretos. Se faltar a API key, avise gentilmente que é preciso configurar DEEPSEEK_API_KEY. Para ações operacionais (criar, atualizar, reagendar, excluir ou mudar presença), responda com um único JSON simples e sem texto extra. Se o usuário pedir para criar/agendar um evento e você tiver título, data (AAAA-MM-DD) e início (HH:mm), responda com: {"action":"create_event","title":"...","date":"AAAA-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. Para excluir use {"action":"delete_event",...}. Para presença use {"action":"set_attendance","attendance":"confirmed|tentative|declined|pending",...}. end é opcional; se faltar, calcule com duration_minutes (quando vier) ou padrão +60 min a partir de start. Se o usuário disser “duração 90 minutos”, use duration_minutes: 90. Se faltar algum campo, peça apenas esse campo faltante.',
             welcome: 'Olá, sou a CoordinalIA. Posso ajudar a criar, consultar ou reagendar eventos rapidamente. Como posso ajudar?',
             noEvents: {
                 today: 'Sem eventos para hoje.',
@@ -136,16 +138,43 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     };
 
     const ASSISTANT_CONFIG_KEY = 'coordinalia-config';
+    const ASSISTANT_ANDROID_APIKEY_KEY = 'coordinalia-android-api-key';
+    const ASSISTANT_ANDROID_APIURL_KEY = 'coordinalia-android-api-url';
+    const ASSISTANT_ANDROID_MODEL_KEY = 'coordinalia-android-model';
+    const ASSISTANT_ANDROID_DEFAULT_API_URL = 'https://api.deepseek.com/v1/chat/completions';
+    const ASSISTANT_ANDROID_DEFAULT_MODEL = 'deepseek-chat';
+    const ASSISTANT_STT_PROVIDER_KEY = 'coordinalia-stt-provider';
+    const ASSISTANT_STT_MODEL_KEY = 'coordinalia-stt-model';
+    const ASSISTANT_STT_APIURL_KEY = 'coordinalia-stt-api-url';
+    const ASSISTANT_OPENAI_APIKEY_KEY = 'coordinalia-openai-api-key';
+    const ASSISTANT_GOOGLE_APIKEY_KEY = 'coordinalia-google-api-key';
+    const ASSISTANT_ANDROID_TTS_APIKEY_KEY = 'coordinalia-android-tts-api-key';
+    const ASSISTANT_ANDROID_TTS_APIURL_KEY = 'coordinalia-android-tts-api-url';
+    const ASSISTANT_ANDROID_TTS_MODEL_KEY = 'coordinalia-android-tts-model';
+    const ASSISTANT_ANDROID_TTS_VOICE_KEY = 'coordinalia-android-tts-voice';
+    const ASSISTANT_ANDROID_DEFAULT_TTS_API_URL = 'https://api.elevenlabs.io/v1';
+    const ASSISTANT_ANDROID_DEFAULT_TTS_MODEL = 'eleven_v3';
+    const ASSISTANT_ANDROID_DEFAULT_TTS_VOICE = 'EXAVITQu4vr4xnSDxMaL';
+    const ASSISTANT_ANDROID_FEMALE_TTS_VOICE = 'EXAVITQu4vr4xnSDxMaL';
     const ASSISTANT_PROVIDERS = {
         deepseek: { id: 'deepseek', label: 'DeepSeek' }
+    };
+    const ASSISTANT_STT_PROVIDERS = {
+        browser: { id: 'browser', label: 'Browser STT' },
+        elevenlabs: { id: 'elevenlabs', label: 'ElevenLabs STT' },
+        openai: { id: 'openai', label: 'gpt-4o-mini-transcribe' },
+        google: { id: 'google', label: 'Google Speech' },
     };
     const ASSISTANT_TTS_PROVIDERS = {
         auto: { id: 'auto' },
         elevenlabs: { id: 'elevenlabs' },
+        openai: { id: 'openai' },
+        google: { id: 'google' },
     };
 
     const assistantMessages = [];
     let assistantUnsubscribe = null;
+    let assistantPendingAction = null;
     let assistantLocale = 'es';
     let assistantStrings = ASSISTANT_TEXT.es;
     let assistantSystemPrompt = assistantStrings.prompt;
@@ -156,6 +185,11 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     let assistantVoiceRetryCount = 0;
     let assistantVoiceRetryTimer = null;
     let assistantVoiceStopRequested = false;
+    let assistantVoiceHasResult = false;
+    let assistantVoiceOnEndRetryCount = 0;
+    let assistantVoiceTranscriptBuffer = '';
+    let assistantVoiceFinalizeTimer = null;
+    let assistantVoiceSubmitting = false;
     let assistantRecorder = null;
     let assistantRecorderChunks = [];
     let assistantRecorderStream = null;
@@ -164,6 +198,8 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     let assistantTtsProvider = 'auto';
     let assistantVoiceMode = 'recognition';
     const ASSISTANT_VOICE_MAX_RETRIES = 2;
+    const ASSISTANT_VOICE_ONEND_MAX_RETRIES = 1;
+    const ASSISTANT_VOICE_SILENCE_SUBMIT_MS = 2400;
 
     function tr(key, vars = {}) {
         return t(assistantLocale, key, vars);
@@ -190,15 +226,97 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             const provider = ASSISTANT_PROVIDERS[parsed.provider]?.id || 'deepseek';
             const ttsEnabled = parsed.ttsEnabled !== false;
             const ttsProvider = ASSISTANT_TTS_PROVIDERS[parsed.ttsProvider]?.id || 'auto';
-            return { provider, ttsEnabled, ttsProvider };
+            const sttProvider = ASSISTANT_STT_PROVIDERS[parsed.sttProvider]?.id
+                || ASSISTANT_STT_PROVIDERS[String(localStorage.getItem(ASSISTANT_STT_PROVIDER_KEY) || '').trim()]?.id
+                || 'browser';
+            const sttModel = String(parsed.sttModel || localStorage.getItem(ASSISTANT_STT_MODEL_KEY) || '').trim();
+            const sttApiUrl = String(parsed.sttApiUrl || localStorage.getItem(ASSISTANT_STT_APIURL_KEY) || '').trim();
+            const openaiApiKey = String(parsed.openaiApiKey || localStorage.getItem(ASSISTANT_OPENAI_APIKEY_KEY) || '').trim();
+            const googleApiKey = String(parsed.googleApiKey || localStorage.getItem(ASSISTANT_GOOGLE_APIKEY_KEY) || '').trim();
+            const androidApiKey = String(parsed.androidApiKey || localStorage.getItem(ASSISTANT_ANDROID_APIKEY_KEY) || '').trim();
+            const androidApiUrl = String(parsed.androidApiUrl || localStorage.getItem(ASSISTANT_ANDROID_APIURL_KEY) || ASSISTANT_ANDROID_DEFAULT_API_URL).trim();
+            const androidModel = String(parsed.androidModel || localStorage.getItem(ASSISTANT_ANDROID_MODEL_KEY) || ASSISTANT_ANDROID_DEFAULT_MODEL).trim();
+            const androidTtsApiKey = String(parsed.androidTtsApiKey || localStorage.getItem(ASSISTANT_ANDROID_TTS_APIKEY_KEY) || '').trim();
+            const androidTtsApiUrl = String(parsed.androidTtsApiUrl || localStorage.getItem(ASSISTANT_ANDROID_TTS_APIURL_KEY) || ASSISTANT_ANDROID_DEFAULT_TTS_API_URL).trim();
+            const androidTtsModel = String(parsed.androidTtsModel || localStorage.getItem(ASSISTANT_ANDROID_TTS_MODEL_KEY) || ASSISTANT_ANDROID_DEFAULT_TTS_MODEL).trim();
+            const androidTtsVoice = String(parsed.androidTtsVoice || localStorage.getItem(ASSISTANT_ANDROID_TTS_VOICE_KEY) || ASSISTANT_ANDROID_DEFAULT_TTS_VOICE).trim();
+            return {
+                provider,
+                ttsEnabled,
+                ttsProvider,
+                sttProvider,
+                sttModel,
+                sttApiUrl,
+                openaiApiKey,
+                googleApiKey,
+                androidApiKey,
+                androidApiUrl,
+                androidModel,
+                androidTtsApiKey,
+                androidTtsApiUrl,
+                androidTtsModel,
+                androidTtsVoice,
+            };
         } catch (_e) {
-            return { provider: 'deepseek', ttsEnabled: true, ttsProvider: 'auto' };
+            return {
+                provider: 'deepseek',
+                ttsEnabled: true,
+                ttsProvider: 'auto',
+                sttProvider: String(localStorage.getItem(ASSISTANT_STT_PROVIDER_KEY) || 'browser').trim() || 'browser',
+                sttModel: String(localStorage.getItem(ASSISTANT_STT_MODEL_KEY) || '').trim(),
+                sttApiUrl: String(localStorage.getItem(ASSISTANT_STT_APIURL_KEY) || '').trim(),
+                openaiApiKey: String(localStorage.getItem(ASSISTANT_OPENAI_APIKEY_KEY) || '').trim(),
+                googleApiKey: String(localStorage.getItem(ASSISTANT_GOOGLE_APIKEY_KEY) || '').trim(),
+                androidApiKey: String(localStorage.getItem(ASSISTANT_ANDROID_APIKEY_KEY) || '').trim(),
+                androidApiUrl: String(localStorage.getItem(ASSISTANT_ANDROID_APIURL_KEY) || ASSISTANT_ANDROID_DEFAULT_API_URL).trim(),
+                androidModel: String(localStorage.getItem(ASSISTANT_ANDROID_MODEL_KEY) || ASSISTANT_ANDROID_DEFAULT_MODEL).trim(),
+                androidTtsApiKey: String(localStorage.getItem(ASSISTANT_ANDROID_TTS_APIKEY_KEY) || '').trim(),
+                androidTtsApiUrl: String(localStorage.getItem(ASSISTANT_ANDROID_TTS_APIURL_KEY) || ASSISTANT_ANDROID_DEFAULT_TTS_API_URL).trim(),
+                androidTtsModel: String(localStorage.getItem(ASSISTANT_ANDROID_TTS_MODEL_KEY) || ASSISTANT_ANDROID_DEFAULT_TTS_MODEL).trim(),
+                androidTtsVoice: String(localStorage.getItem(ASSISTANT_ANDROID_TTS_VOICE_KEY) || ASSISTANT_ANDROID_DEFAULT_TTS_VOICE).trim(),
+            };
         }
     }
 
     function saveAssistantConfig(config) {
         try {
             localStorage.setItem(ASSISTANT_CONFIG_KEY, JSON.stringify(config));
+            if (typeof config?.androidApiKey === 'string') {
+                localStorage.setItem(ASSISTANT_ANDROID_APIKEY_KEY, config.androidApiKey);
+            }
+            if (typeof config?.sttProvider === 'string') {
+                localStorage.setItem(ASSISTANT_STT_PROVIDER_KEY, config.sttProvider);
+            }
+            if (typeof config?.sttModel === 'string') {
+                localStorage.setItem(ASSISTANT_STT_MODEL_KEY, config.sttModel);
+            }
+            if (typeof config?.sttApiUrl === 'string') {
+                localStorage.setItem(ASSISTANT_STT_APIURL_KEY, config.sttApiUrl);
+            }
+            if (typeof config?.openaiApiKey === 'string') {
+                localStorage.setItem(ASSISTANT_OPENAI_APIKEY_KEY, config.openaiApiKey);
+            }
+            if (typeof config?.googleApiKey === 'string') {
+                localStorage.setItem(ASSISTANT_GOOGLE_APIKEY_KEY, config.googleApiKey);
+            }
+            if (typeof config?.androidApiUrl === 'string') {
+                localStorage.setItem(ASSISTANT_ANDROID_APIURL_KEY, config.androidApiUrl);
+            }
+            if (typeof config?.androidModel === 'string') {
+                localStorage.setItem(ASSISTANT_ANDROID_MODEL_KEY, config.androidModel);
+            }
+            if (typeof config?.androidTtsApiKey === 'string') {
+                localStorage.setItem(ASSISTANT_ANDROID_TTS_APIKEY_KEY, config.androidTtsApiKey);
+            }
+            if (typeof config?.androidTtsApiUrl === 'string') {
+                localStorage.setItem(ASSISTANT_ANDROID_TTS_APIURL_KEY, config.androidTtsApiUrl);
+            }
+            if (typeof config?.androidTtsModel === 'string') {
+                localStorage.setItem(ASSISTANT_ANDROID_TTS_MODEL_KEY, config.androidTtsModel);
+            }
+            if (typeof config?.androidTtsVoice === 'string') {
+                localStorage.setItem(ASSISTANT_ANDROID_TTS_VOICE_KEY, config.androidTtsVoice);
+            }
         } catch (e) {
             console.warn('No se pudo guardar la configuración del asistente', e);
         }
@@ -210,6 +328,165 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         assistantTtsEnabled = cfg.ttsEnabled !== false;
         assistantTtsProvider = cfg.ttsProvider || 'auto';
         return cfg;
+    }
+
+    function isAndroidRuntime() {
+        const ua = String(navigator?.userAgent || '');
+        const platform = String(window?.Capacitor?.getPlatform?.() || '').toLowerCase();
+        return platform === 'android' || /android/i.test(ua);
+    }
+
+    function saveAndroidAssistantApiKey(apiKey = '') {
+        const key = String(apiKey || '').trim();
+        const cfg = getAssistantConfig();
+        cfg.androidApiKey = key;
+        saveAssistantConfig(cfg);
+        return key;
+    }
+
+    function ensureAndroidAssistantApiKey() {
+        if (!isAndroidRuntime()) return null;
+        const cfg = getAssistantConfig();
+        let apiKey = String(cfg.androidApiKey || '').trim();
+        if (apiKey) return apiKey;
+
+        const entered = window.prompt(tr('assistant.askApiKeyPrompt'), '');
+        if (entered && entered.trim()) {
+            apiKey = saveAndroidAssistantApiKey(entered);
+            if (apiKey) {
+                setAssistantStatus(tr('assistant.apiKeySaved'));
+                return apiKey;
+            }
+        }
+        return '';
+    }
+
+    function normalizeSttProviderValue(value = '') {
+        const raw = String(value || '').toLowerCase().trim();
+        if (['browser', 'local', 'local-browser'].includes(raw)) return 'browser';
+        if (['elevenlabs', '11labs', 'eleven'].includes(raw)) return 'elevenlabs';
+        if (['openai', 'gpt-4o-mini-transcribe', 'gpt4o-mini-transcribe', 'gpt-4o'].includes(raw)) return 'openai';
+        if (['google', 'google-speech', 'google speech'].includes(raw)) return 'google';
+        return '';
+    }
+
+    function normalizeTtsProviderValue(value = '') {
+        const raw = String(value || '').toLowerCase().trim();
+        if (['auto'].includes(raw)) return 'auto';
+        if (['elevenlabs', '11labs', 'eleven'].includes(raw)) return 'elevenlabs';
+        if (['openai', 'gpt-4o-mini-tts', 'gpt4o-mini-tts'].includes(raw)) return 'openai';
+        if (['google', 'google-speech', 'google speech'].includes(raw)) return 'google';
+        return '';
+    }
+
+    function getApiKeyByProvider(cfg = {}, provider = '') {
+        const p = String(provider || '').trim();
+        if (p === 'openai') return String(cfg.openaiApiKey || '').trim();
+        if (p === 'google') return String(cfg.googleApiKey || '').trim();
+        return String(cfg.androidTtsApiKey || '').trim();
+    }
+
+    function saveApiKeyByProvider(provider = '', apiKey = '') {
+        const p = String(provider || '').trim();
+        const key = String(apiKey || '').trim();
+        if (p !== 'openai' && p !== 'google') {
+            return saveAndroidAssistantTtsApiKey(key);
+        }
+
+        const cfg = getAssistantConfig();
+        if (p === 'openai') cfg.openaiApiKey = key;
+        if (p === 'google') cfg.googleApiKey = key;
+        saveAssistantConfig(cfg);
+        return key;
+    }
+
+    function saveAssistantSttProvider(provider = '') {
+        const normalized = normalizeSttProviderValue(provider);
+        if (!normalized) return '';
+        const cfg = getAssistantConfig();
+        cfg.sttProvider = normalized;
+        if (normalized === 'openai' && !cfg.sttModel) cfg.sttModel = 'gpt-4o-mini-transcribe';
+        saveAssistantConfig(cfg);
+        return normalized;
+    }
+
+    function saveAssistantTtsProvider(provider = '') {
+        const normalized = normalizeTtsProviderValue(provider);
+        if (!normalized) return '';
+        const cfg = getAssistantConfig();
+        cfg.ttsProvider = normalized;
+        saveAssistantConfig(cfg);
+        assistantTtsProvider = normalized;
+        return normalized;
+    }
+
+    function saveAndroidAssistantTtsApiKey(apiKey = '') {
+        const key = String(apiKey || '').trim();
+        const cfg = getAssistantConfig();
+        cfg.androidTtsApiKey = key;
+        saveAssistantConfig(cfg);
+        return key;
+    }
+
+    function saveAndroidAssistantTtsVoice(voiceId = '') {
+        const voice = String(voiceId || '').trim();
+        const cfg = getAssistantConfig();
+        cfg.androidTtsVoice = voice;
+        saveAssistantConfig(cfg);
+        return voice;
+    }
+
+    async function callAssistantAndroid(messages = [], options = {}) {
+        const cfg = getAssistantConfig();
+        const apiKey = String(cfg.androidApiKey || '').trim();
+        if (!apiKey) {
+            const err = new Error('Falta API key para Android');
+            err.code = 'NO_API_KEY';
+            throw err;
+        }
+
+        const apiUrl = String(options.apiUrl || cfg.androidApiUrl || ASSISTANT_ANDROID_DEFAULT_API_URL).trim();
+        const model = String(options.model || cfg.androidModel || ASSISTANT_ANDROID_DEFAULT_MODEL).trim();
+        const safeMessages = Array.isArray(messages)
+            ? messages.filter(m => m && typeof m.content === 'string').map(m => ({ role: m.role || 'user', content: m.content }))
+            : [];
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
+        try {
+            const res = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify({
+                    model,
+                    messages: safeMessages,
+                    temperature: 0.3,
+                    stream: false,
+                }),
+                signal: controller.signal,
+            });
+
+            if (!res.ok) {
+                const text = await res.text().catch(() => '');
+                const err = new Error(`DeepSeek error ${res.status}: ${text}`);
+                err.code = 'API_ERROR';
+                throw err;
+            }
+
+            const data = await res.json();
+            const content = String(data?.choices?.[0]?.message?.content || '').trim();
+            if (!content) {
+                const err = new Error('Respuesta vacía del asistente');
+                err.code = 'EMPTY_RESPONSE';
+                throw err;
+            }
+            return content;
+        } finally {
+            clearTimeout(timeout);
+        }
     }
 
     function renderAssistantTtsToggle() {
@@ -289,48 +566,9 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         monthlyPrevBtn?.addEventListener('click', () => shiftBaseDateMonths(-1));
         monthlyNextBtn?.addEventListener('click', () => shiftBaseDateMonths(1));
     reminderSelect?.addEventListener('change', handleReminderChange);
-        autoStartToggle?.addEventListener('change', handleAutoStartToggle);
 
         hydrateVersion();
-        hydrateAutoStart();
         setupAssistantModal();
-    }
-
-    async function hydrateAutoStart() {
-        if (!autoStartToggle || !window.appBridge?.getAutoStartStatus) return;
-        autoStartToggle.disabled = true;
-        try {
-            const status = await window.appBridge.getAutoStartStatus();
-            const supported = !!status?.supported;
-            autoStartToggle.checked = !!status?.enabled;
-            autoStartToggle.disabled = !supported;
-            autoStartToggle.title = supported
-                ? tr('header.autoStart')
-                : tr('app.unavailable');
-        } catch (e) {
-            console.warn('No se pudo leer estado de inicio automático', e);
-            autoStartToggle.disabled = true;
-            autoStartToggle.title = tr('app.unavailable');
-        }
-    }
-
-    async function handleAutoStartToggle() {
-        if (!autoStartToggle || !window.appBridge?.setAutoStartEnabled) return;
-        const desired = !!autoStartToggle.checked;
-        autoStartToggle.disabled = true;
-        try {
-            const result = await window.appBridge.setAutoStartEnabled(desired);
-            autoStartToggle.checked = !!result?.enabled;
-            autoStartToggle.disabled = !result?.supported;
-            setStatus(result?.enabled
-                ? tr('form.statusAutoStartOn')
-                : tr('form.statusAutoStartOff'), 'muted');
-        } catch (e) {
-            console.warn('No se pudo actualizar inicio automático', e);
-            autoStartToggle.checked = !desired;
-            autoStartToggle.disabled = false;
-            setStatus(tr('form.statusAutoStartFail'), 'danger');
-        }
     }
 
     // Crear o actualizar eventos desde el formulario.
@@ -433,7 +671,18 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             return null;
         }
 
-        return { id, title, date, start, end, description, color, reminder_offset: reminderSeconds, autoCompletedEnd };
+        return {
+            id,
+            title,
+            date,
+            start,
+            end,
+            description,
+            color,
+            reminder_offset: reminderSeconds,
+            attendance: getExistingEventAttendance(id),
+            autoCompletedEnd
+        };
     }
 
     // Muestra mensajes de estado contextuales.
@@ -448,30 +697,43 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         return eventsCache;
     }
 
+    function normalizeEventRecord(ev = {}) {
+        return {
+            ...ev,
+            attendance: normalizeAttendanceStatus(ev.attendance)
+        };
+    }
+
+    function getExistingEventAttendance(id = '') {
+        if (!id) return 'pending';
+        const current = getEvents().find(e => String(e.id) === String(id));
+        return normalizeAttendanceStatus(current?.attendance);
+    }
+
     async function loadEventsFromStore() {
         if (hasNativeStore && window.appBridge?.getEvents) {
             try {
                 const nativeEvents = await window.appBridge.getEvents();
                 if (Array.isArray(nativeEvents) && nativeEvents.length) {
-                    eventsCache = nativeEvents;
+                    eventsCache = nativeEvents.map(normalizeEventRecord);
                     return;
                 }
                 // Migración inicial: si no hay datos en store nativo, usa localStorage si existe.
                 const legacy = loadEventsFromLocal();
-                eventsCache = legacy;
+                eventsCache = legacy.map(normalizeEventRecord);
                 await window.appBridge.saveEvents(eventsCache);
                 return;
             } catch (e) {
                 console.warn('No se pudo cargar store nativo, se usa localStorage', e);
-                eventsCache = loadEventsFromLocal();
+                eventsCache = loadEventsFromLocal().map(normalizeEventRecord);
                 return;
             }
         }
-        eventsCache = loadEventsFromLocal();
+        eventsCache = loadEventsFromLocal().map(normalizeEventRecord);
     }
 
     function saveEvents(list) {
-        eventsCache = Array.isArray(list) ? [...list] : [];
+        eventsCache = Array.isArray(list) ? list.map(normalizeEventRecord) : [];
         if (hasNativeStore && window.appBridge?.saveEvents) {
             window.appBridge.saveEvents(eventsCache).catch((e) => console.warn('Persistencia nativa falló', e));
         }
@@ -643,6 +905,8 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         }
 
         events.forEach(ev => {
+            const attendance = normalizeAttendanceStatus(ev.attendance);
+            const attendanceLabel = getAttendanceLabel(attendance);
             const card = document.createElement('article');
             card.className = 'event-card';
             card.innerHTML = `
@@ -653,7 +917,14 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
                     <span class="event-card__color" style="background:${ev.color}"></span>
                     <span>${formatReadableDate(ev.date, getCurrentIntlLocale())}</span>
                     <span>${ev.start} - ${ev.end}</span>
+                    <span class="badge badge--attendance badge--attendance-${attendance}">${attendanceLabel}</span>
                     ${ev.description ? `<span class="badge">${ev.description}</span>` : ''}
+                </div>
+                <div class="event-card__attendance-actions">
+                    <button class="btn btn--ghost" data-attendance="confirmed">${getAttendanceActionLabel('confirmed')}</button>
+                    <button class="btn btn--ghost" data-attendance="tentative">${getAttendanceActionLabel('tentative')}</button>
+                    <button class="btn btn--ghost" data-attendance="declined">${getAttendanceActionLabel('declined')}</button>
+                    <button class="btn btn--ghost" data-attendance="pending">${getAttendanceActionLabel('pending')}</button>
                 </div>
                 <div class="event-card__actions">
                     <button class="btn btn--ghost" data-action="edit">${tr('list.edit')}</button>
@@ -663,9 +934,107 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
             card.querySelector('[data-action="edit"]').addEventListener('click', () => loadToForm(ev));
             card.querySelector('[data-action="delete"]').addEventListener('click', () => deleteEvent(ev.id));
+            card.querySelectorAll('[data-attendance]').forEach((btn) => {
+                btn.addEventListener('click', () => setEventAttendance(ev.id, btn.dataset.attendance));
+            });
 
             eventListEl.appendChild(card);
         });
+    }
+
+    function getAttendanceLabel(status = 'pending') {
+        const key = normalizeAttendanceStatus(status);
+        const dict = {
+            es: {
+                pending: 'Pendiente',
+                confirmed: 'Confirmado',
+                declined: 'No asiste',
+                tentative: 'Tentativo',
+            },
+            en: {
+                pending: 'Pending',
+                confirmed: 'Confirmed',
+                declined: 'Declined',
+                tentative: 'Tentative',
+            },
+            pt: {
+                pending: 'Pendente',
+                confirmed: 'Confirmado',
+                declined: 'Recusado',
+                tentative: 'Tentativo',
+            }
+        };
+        const lang = String(assistantLocale || 'es').slice(0, 2);
+        return (dict[lang] && dict[lang][key]) || dict.es[key] || dict.es.pending;
+    }
+
+    function getAttendanceActionLabel(status = 'pending') {
+        const key = normalizeAttendanceStatus(status);
+        const dict = {
+            es: {
+                pending: 'Marcar pendiente',
+                confirmed: 'Confirmar asistencia',
+                declined: 'Marcar no asiste',
+                tentative: 'Marcar tentativo',
+            },
+            en: {
+                pending: 'Mark pending',
+                confirmed: 'Confirm attendance',
+                declined: 'Mark declined',
+                tentative: 'Mark tentative',
+            },
+            pt: {
+                pending: 'Marcar pendente',
+                confirmed: 'Confirmar presença',
+                declined: 'Marcar recusado',
+                tentative: 'Marcar tentativo',
+            }
+        };
+        const lang = String(assistantLocale || 'es').slice(0, 2);
+        return (dict[lang] && dict[lang][key]) || dict.es[key] || dict.es.pending;
+    }
+
+    function setEventAttendance(id, status) {
+        const nextStatus = normalizeAttendanceStatus(status, '');
+        if (!nextStatus) {
+            setStatus(getAttendanceStatusText('invalid'), 'danger');
+            return;
+        }
+
+        const events = getEvents();
+        const index = events.findIndex((e) => e.id === id);
+        if (index < 0) {
+            setStatus(assistantShortText('eventNotFound'), 'danger');
+            return;
+        }
+
+        events[index] = {
+            ...events[index],
+            attendance: nextStatus,
+        };
+        saveEvents(events);
+        renderAll();
+        setStatus(getAttendanceStatusText('updated', { title: events[index].title, status: getAttendanceLabel(nextStatus) }), 'success');
+    }
+
+    function getAttendanceStatusText(type = 'updated', vars = {}) {
+        const dict = {
+            es: {
+                updated: 'Asistencia actualizada para "{{title}}": {{status}}.',
+                invalid: 'Estado de asistencia inválido.',
+            },
+            en: {
+                updated: 'Attendance updated for "{{title}}": {{status}}.',
+                invalid: 'Invalid attendance status.',
+            },
+            pt: {
+                updated: 'Presença atualizada para "{{title}}": {{status}}.',
+                invalid: 'Status de presença inválido.',
+            }
+        };
+        const lang = String(assistantLocale || 'es').slice(0, 2);
+        const template = (dict[lang] && dict[lang][type]) || dict.es[type] || '';
+        return Object.entries(vars).reduce((acc, [k, v]) => acc.replaceAll(`{{${k}}}`, String(v ?? '')), template);
     }
 
     function deleteEvent(id) {
@@ -784,7 +1153,8 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         const title = (headers && headers[range]) || tr('assistant.eventsTitle');
         const lines = list.map(ev => {
             const desc = ev.description ? ` — ${ev.description}` : '';
-            return `- ${ev.date} ${ev.start}-${ev.end} ${ev.title}${desc}`;
+            const attendance = getAttendanceLabel(ev.attendance);
+            return `- ${ev.date} ${ev.start}-${ev.end} ${ev.title}${desc} [${attendance}]`;
         });
         return `${title}\n${lines.join('\n')}`;
     }
@@ -831,8 +1201,10 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             if (!raw) return;
             const parsed = JSON.parse(raw);
             if (!Array.isArray(parsed)) return;
+            const legacyDesktopOnlyRx = /(available only in the desktop app|solo en la app de escritorio|apenas no app desktop).*(electron)/i;
             parsed.slice(-30).forEach((m) => {
                 if (m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string') {
+                    if (m.role === 'assistant' && legacyDesktopOnlyRx.test(m.content)) return;
                     assistantMessages.push({ role: m.role, content: m.content });
                 }
             });
@@ -905,22 +1277,108 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         updateVoiceUi();
     }
 
+    function resetAssistantVoiceCaptureState() {
+        assistantVoiceTranscriptBuffer = '';
+        assistantVoiceSubmitting = false;
+        clearTimeout(assistantVoiceFinalizeTimer);
+        assistantVoiceFinalizeTimer = null;
+    }
+
+    function appendAssistantVoiceTranscript(segment = '') {
+        const clean = cleanVoiceTranscript(segment || '');
+        if (!clean) return;
+
+        const current = cleanVoiceTranscript(assistantVoiceTranscriptBuffer || '');
+        if (!current) {
+            assistantVoiceTranscriptBuffer = clean;
+            return;
+        }
+
+        if (current === clean || current.endsWith(clean)) {
+            assistantVoiceTranscriptBuffer = current;
+            return;
+        }
+
+        assistantVoiceTranscriptBuffer = `${current} ${clean}`.replace(/\s+/g, ' ').trim();
+    }
+
+    function finalizeAssistantVoiceTranscript() {
+        if (assistantVoiceSubmitting) return;
+        const transcript = cleanVoiceTranscript(assistantVoiceTranscriptBuffer || '');
+        if (!transcript) {
+            setAssistantStatus(tr('assistant.transcriptFailed'));
+            return;
+        }
+
+        assistantVoiceSubmitting = true;
+        assistantVoiceStopRequested = true;
+        clearTimeout(assistantVoiceFinalizeTimer);
+        assistantVoiceFinalizeTimer = null;
+
+        if (assistantInput) assistantInput.value = transcript;
+        submitAssistantFromVoice();
+    }
+
+    function scheduleAssistantVoiceFinalize() {
+        clearTimeout(assistantVoiceFinalizeTimer);
+        assistantVoiceFinalizeTimer = setTimeout(() => {
+            finalizeAssistantVoiceTranscript();
+        }, ASSISTANT_VOICE_SILENCE_SUBMIT_MS);
+    }
+
     function createAssistantRecognizer() {
         const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognitionCtor) return null;
         const rec = new SpeechRecognitionCtor();
         rec.lang = getVoiceLang(assistantLocale);
         rec.interimResults = false;
-        rec.continuous = false;
+        rec.continuous = true;
         rec.maxAlternatives = 1;
 
         rec.onstart = () => {
             assistantListening = true;
+            if (!assistantVoiceTranscriptBuffer) {
+                assistantVoiceHasResult = false;
+            }
             setAssistantStatus(tr('assistant.listening'));
             updateVoiceUi();
         };
 
         rec.onend = () => {
+            if (
+                !assistantVoiceStopRequested
+                && assistantVoiceMode === 'recognition'
+                && !assistantVoiceSubmitting
+                && assistantVoiceTranscriptBuffer
+            ) {
+                if (assistantVoiceFinalizeTimer) {
+                    setTimeout(() => {
+                        if (!assistantVoiceStopRequested && !assistantVoiceSubmitting) {
+                            startAssistantVoiceRecognition({ fromRetry: true });
+                        }
+                    }, 220);
+                    return;
+                }
+                finalizeAssistantVoiceTranscript();
+                return;
+            }
+
+            if (
+                !assistantVoiceStopRequested
+                && assistantVoiceMode === 'recognition'
+                && !assistantVoiceHasResult
+                && assistantVoiceOnEndRetryCount < ASSISTANT_VOICE_ONEND_MAX_RETRIES
+            ) {
+                assistantVoiceOnEndRetryCount += 1;
+                setAssistantStatus(mapVoiceErrorCode('no-speech', assistantLocale));
+                setTimeout(() => {
+                    if (!assistantVoiceStopRequested) {
+                        startAssistantVoiceRecognition({ fromRetry: true });
+                    }
+                }, 350);
+                return;
+            }
+
             assistantListening = false;
             updateVoiceUi();
         };
@@ -959,14 +1417,25 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         };
 
         rec.onresult = (event) => {
-            const transcriptRaw = event?.results?.[0]?.[0]?.transcript || '';
-            const transcript = cleanVoiceTranscript(transcriptRaw);
-            if (!transcript) {
+            assistantVoiceHasResult = true;
+            assistantVoiceOnEndRetryCount = 0;
+
+            const startIndex = Number.isFinite(event?.resultIndex) ? event.resultIndex : 0;
+            const results = event?.results || [];
+
+            for (let i = startIndex; i < results.length; i += 1) {
+                const item = results[i];
+                const chunk = item?.[0]?.transcript || '';
+                appendAssistantVoiceTranscript(chunk);
+            }
+
+            if (!assistantVoiceTranscriptBuffer) {
                 setAssistantStatus(tr('assistant.transcriptFailed'));
                 return;
             }
-            if (assistantInput) assistantInput.value = transcript;
-            submitAssistantFromVoice();
+
+            setAssistantStatus(tr('assistant.listening'));
+            scheduleAssistantVoiceFinalize();
         };
 
         return rec;
@@ -996,9 +1465,226 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         return bytes;
     }
 
+    async function playAssistantAudioBytes(bytes, mimeType = 'audio/mpeg') {
+        const payload = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+        if (!payload.length) {
+            throw new Error('EMPTY_TTS_AUDIO');
+        }
+
+        if (assistantTtsAudio) {
+            try {
+                assistantTtsAudio.pause();
+            } catch (_e) {
+                // no-op
+            }
+            assistantTtsAudio = null;
+        }
+
+        const blob = new Blob([payload], { type: mimeType || 'audio/mpeg' });
+        const url = URL.createObjectURL(blob);
+        assistantTtsAudio = new Audio(url);
+        assistantTtsAudio.onended = () => URL.revokeObjectURL(url);
+        assistantTtsAudio.onerror = () => URL.revokeObjectURL(url);
+        await assistantTtsAudio.play();
+    }
+
+    function resolveAndroidElevenLabsTtsUrl(baseUrl = '', voiceId = '') {
+        let url = String(baseUrl || ASSISTANT_ANDROID_DEFAULT_TTS_API_URL).trim().replace(/\/+$/, '');
+        const safeVoice = encodeURIComponent(String(voiceId || ASSISTANT_ANDROID_DEFAULT_TTS_VOICE).trim());
+
+        if (!/\/text-to-speech(?:\/|$)/i.test(url)) {
+            url = `${url}/text-to-speech`;
+        }
+        if (!/\/text-to-speech\/[^/]+$/i.test(url)) {
+            url = `${url}/${safeVoice}`;
+        }
+        return url;
+    }
+
+    async function speakAssistantTextWithAndroidElevenLabs(text = '') {
+        if (!isAndroidRuntime()) return false;
+        const cfg = getAssistantConfig();
+        const apiKey = String(cfg.androidTtsApiKey || '').trim();
+        if (!apiKey) return false;
+
+        const endpoint = resolveAndroidElevenLabsTtsUrl(cfg.androidTtsApiUrl, cfg.androidTtsVoice);
+        const model = String(cfg.androidTtsModel || ASSISTANT_ANDROID_DEFAULT_TTS_MODEL).trim();
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
+        try {
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'audio/mpeg',
+                    'xi-api-key': apiKey,
+                },
+                body: JSON.stringify({
+                    text: String(text || '').trim(),
+                    model_id: model,
+                    output_format: 'mp3_44100_128',
+                }),
+                signal: controller.signal,
+            });
+
+            if (!res.ok) {
+                const errText = await res.text().catch(() => '');
+                const err = new Error(`ELEVENLABS_TTS_ERROR ${res.status}: ${errText}`);
+                err.code = res.status === 401 ? 'NO_TTS_API_KEY' : 'TTS_ERROR';
+                throw err;
+            }
+
+            const arr = new Uint8Array(await res.arrayBuffer());
+            await playAssistantAudioBytes(arr, res.headers.get('content-type') || 'audio/mpeg');
+            return true;
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    function supportsBrowserTts() {
+        return !!window?.speechSynthesis && typeof window.SpeechSynthesisUtterance === 'function';
+    }
+
+    function supportsCapacitorTts() {
+        return typeof window?.Capacitor?.Plugins?.TextToSpeech?.speak === 'function';
+    }
+
+    async function speakAssistantTextWithCapacitorTts(text = '') {
+        if (!supportsCapacitorTts()) return false;
+        try {
+            await window.Capacitor.Plugins.TextToSpeech.speak({
+                text: String(text || '').trim(),
+                lang: getVoiceLang(assistantLocale),
+                rate: 1,
+                pitch: 1,
+                volume: 1,
+                category: 'playback',
+            });
+            return true;
+        } catch (_e) {
+            return false;
+        }
+    }
+
+    function pickBrowserTtsVoice(preferredLang = '') {
+        if (!window?.speechSynthesis?.getVoices) return null;
+        const voices = window.speechSynthesis.getVoices() || [];
+        if (!voices.length) return null;
+
+        const preferred = String(preferredLang || '').toLowerCase();
+        const primary = preferred.split('-')[0];
+
+        const femaleHints = [
+            'female', 'woman', 'girl', 'femenina', 'mujer', 'garota',
+            'lucia', 'sofia', 'paulina', 'camila', 'elena', 'maria',
+            'ana', 'clara', 'paula', 'isabela', 'isabella', 'monica'
+        ];
+
+        const voiceLooksFemale = (voice) => {
+            const name = normalizeLooseText(voice?.name || '');
+            if (!name) return false;
+            return femaleHints.some(h => name.includes(h));
+        };
+
+        const rankVoice = (voice) => {
+            const lang = String(voice?.lang || '').toLowerCase();
+            const femaleBoost = voiceLooksFemale(voice) ? 100 : 0;
+            if (lang === preferred) return 300 + femaleBoost;
+            if (lang.startsWith(`${primary}-`)) return 200 + femaleBoost;
+            if (lang === primary) return 150 + femaleBoost;
+            return femaleBoost;
+        };
+
+        const ranked = [...voices].sort((a, b) => rankVoice(b) - rankVoice(a));
+        return ranked[0] || null;
+    }
+
+    async function ensureBrowserTtsVoices() {
+        if (!supportsBrowserTts()) return [];
+        const voicesNow = window.speechSynthesis.getVoices() || [];
+        if (voicesNow.length) return voicesNow;
+
+        return new Promise((resolve) => {
+            let settled = false;
+            const done = () => {
+                if (settled) return;
+                settled = true;
+                window.speechSynthesis.onvoiceschanged = null;
+                resolve(window.speechSynthesis.getVoices() || []);
+            };
+            window.speechSynthesis.onvoiceschanged = () => done();
+            setTimeout(done, 1200);
+        });
+    }
+
+    function stopAssistantBrowserTts() {
+        if (!window?.speechSynthesis) return;
+        try {
+            window.speechSynthesis.cancel();
+        } catch (_e) {
+            // no-op
+        }
+    }
+
+    async function speakAssistantTextWithBrowserTts(text = '') {
+        if (!supportsBrowserTts()) return false;
+        await ensureBrowserTtsVoices();
+
+        return new Promise((resolve) => {
+            try {
+                stopAssistantBrowserTts();
+                const utterance = new window.SpeechSynthesisUtterance(String(text || '').trim());
+                const preferredLang = getVoiceLang(assistantLocale);
+                const voice = pickBrowserTtsVoice(preferredLang);
+                if (voice) {
+                    utterance.voice = voice;
+                    utterance.lang = voice.lang || preferredLang;
+                } else {
+                    utterance.lang = preferredLang;
+                }
+                utterance.rate = 1;
+                utterance.pitch = 1;
+                utterance.volume = 1;
+                utterance.onend = () => resolve(true);
+                utterance.onerror = () => resolve(false);
+                window.speechSynthesis.speak(utterance);
+                setTimeout(() => resolve(false), 8000);
+            } catch (_e) {
+                resolve(false);
+            }
+        });
+    }
+
     async function speakAssistantText(text = '') {
         const speechText = String(text || '').trim();
-        if (!assistantTtsEnabled || !speechText || !window.appBridge?.synthesizeSpeech) return;
+        if (!assistantTtsEnabled || !speechText) return;
+
+        const elevenLabsOk = await speakAssistantTextWithAndroidElevenLabs(speechText).catch((e) => {
+            console.warn('Fallback ElevenLabs TTS Android falló', e);
+            return false;
+        });
+        if (elevenLabsOk) {
+            setAssistantStatus('');
+            return;
+        }
+
+        if (!window.appBridge?.synthesizeSpeech) {
+            const capacitorOk = await speakAssistantTextWithCapacitorTts(speechText);
+            if (capacitorOk) {
+                setAssistantStatus('');
+                return;
+            }
+
+            const browserOk = await speakAssistantTextWithBrowserTts(speechText);
+            if (browserOk) {
+                setAssistantStatus('');
+                return;
+            }
+            setAssistantStatus(tr('assistant.ttsUnavailableLocal'));
+            return;
+        }
 
         try {
             const cfg = getAssistantConfig();
@@ -1011,23 +1697,27 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             });
 
             const bytes = base64ToUint8Array(result?.audioBase64 || '');
-            if (!bytes.length) {
-                throw new Error('EMPTY_TTS_AUDIO');
-            }
-
-            if (assistantTtsAudio) {
-                assistantTtsAudio.pause();
-                assistantTtsAudio = null;
-            }
-
-            const blob = new Blob([bytes], { type: result?.mimeType || 'audio/mpeg' });
-            const url = URL.createObjectURL(blob);
-            assistantTtsAudio = new Audio(url);
-            assistantTtsAudio.onended = () => URL.revokeObjectURL(url);
-            assistantTtsAudio.onerror = () => URL.revokeObjectURL(url);
-            await assistantTtsAudio.play();
+            await playAssistantAudioBytes(bytes, result?.mimeType || 'audio/mpeg');
             setAssistantStatus('');
         } catch (e) {
+            const elevenLabsRetryOk = await speakAssistantTextWithAndroidElevenLabs(speechText).catch(() => false);
+            if (elevenLabsRetryOk) {
+                setAssistantStatus('');
+                return;
+            }
+
+            const capacitorTtsOk = await speakAssistantTextWithCapacitorTts(speechText);
+            if (capacitorTtsOk) {
+                setAssistantStatus('');
+                return;
+            }
+
+            const browserTtsOk = await speakAssistantTextWithBrowserTts(speechText);
+            if (browserTtsOk) {
+                setAssistantStatus('');
+                return;
+            }
+
             const raw = String(e?.message || '');
             const quotaOrBillingIssue = /(\b402\b|insufficient|quota|billing|payment required|credit)/i.test(raw);
             if (quotaOrBillingIssue && assistantTtsEnabled) {
@@ -1112,6 +1802,9 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
         assistantVoiceStopRequested = false;
         assistantVoiceRetryCount = 0;
+        assistantVoiceOnEndRetryCount = 0;
+        assistantVoiceHasResult = false;
+        resetAssistantVoiceCaptureState();
         clearTimeout(assistantVoiceRetryTimer);
 
         if (assistantVoiceMode === 'recorder') {
@@ -1254,6 +1947,8 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     function closeAssistantModal() {
         assistantVoiceStopRequested = true;
         clearTimeout(assistantVoiceRetryTimer);
+        clearTimeout(assistantVoiceFinalizeTimer);
+        assistantVoiceFinalizeTimer = null;
         stopVoiceRecorderFlow();
         if (assistantListening) assistantRecognizer?.stop?.();
         assistantModal.classList.add('is-hidden');
@@ -1268,19 +1963,694 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         if (assistantInput) assistantInput.value = '';
     }
 
+    function isAssistantCreateIntent(text = '') {
+        const t = String(text || '').toLowerCase();
+        return /(\bcrear\b|\bcrea\b|\bagendar\b|\bagenda\b|\bprogramar\b|\bprograma\b|\banadir\b|\bañadir\b|\badd\b|\bcreate\b|\bschedule\b|\bnovo\b|\bcriar\b)/i.test(t);
+    }
+
+    function isAssistantRescheduleIntent(text = '') {
+        const t = String(text || '').toLowerCase();
+        return /(\breprogramar\b|\breprograma\b|\breagendar\b|\breagenda\b|\bmover\b|\bcambiar\b|\bposponer\b|\baplazar\b|\breschedule\b)/i.test(t);
+    }
+
+    function stripLeadingCommandWords(text = '') {
+        let out = String(text || '').trim();
+        if (!out) return out;
+
+        const cmd = '(?:crear|crea|agendar|agenda|programar|programa|anadir|añadir|add|create|schedule|criar|reprogramar|reprograma|reagendar|reagenda|mover|mueve|cambiar|cambia|reschedule|eliminar|elimina|borrar|borra|cancelar|cancela)';
+    const lead = new RegExp(`^(?:${cmd})(?:\\s+|[:.,;-])+`, 'i');
+        const article = /^(?:el|la|los|las|un|una)\s+/i;
+        const eventWord = /^(?:evento|evento:)\s*/i;
+
+        let changed = true;
+        while (changed) {
+            const before = out;
+            out = out.replace(lead, '').replace(article, '').replace(eventWord, '').trim();
+            changed = out !== before;
+        }
+
+    return out.replace(/^[\s:.,;-]+/, '').trim();
+    }
+
+    function isAssistantDeleteIntent(text = '') {
+        const t = String(text || '').toLowerCase();
+        return /(\beliminar\b|\belimina\b|\bborrar\b|\bborra\b|\bcancelar\b|\bcancela\b|\bdelete\b|\bremove\b)/i.test(t);
+    }
+
+    function parseAttendanceFromText(text = '') {
+        const t = normalizeLooseText(text);
+        if (/\b(confirmad[oa]|confirmar|confirm|accepted|aceptad[oa]|yes|si|sim)\b/.test(t)) return 'confirmed';
+        if (/\b(no asiste|rechazad[oa]|declined?|cancelad[oa]|no)\b/.test(t)) return 'declined';
+        if (/\b(tentativ[oa]|maybe|tal vez|quizas|quiza)\b/.test(t)) return 'tentative';
+        if (/\b(pendiente|pendente|pending|sin confirmar)\b/.test(t)) return 'pending';
+        return '';
+    }
+
+    function parseAssistantDateHint(text = '') {
+        const original = String(text || '').trim();
+        if (!original) return '';
+        const normalized = normalizeLooseText(original);
+        if (/\b(hoy|today|hoje)\b/.test(normalized)) return formatISODate(new Date());
+        if (/\b(manana|mañana|tomorrow|amanha|amanhã|dia siguiente|d[ií]a siguiente|next day)\b/.test(normalized)) {
+            return formatISODate(addDays(new Date(), 1));
+        }
+        const dateMatch = original.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+        return dateMatch ? dateMatch[1] : '';
+    }
+
+    function parseAssistantTimeHint(text = '') {
+        const original = String(text || '').trim();
+        if (!original) return '';
+        const hhmm = original.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+        if (hhmm) return `${String(hhmm[1]).padStart(2, '0')}:${hhmm[2]}`;
+
+        const hourMatch = original.match(/(?:a\s+las|a\s+la|at|às|as)\s*([01]?\d|2[0-3])\b/i);
+        if (hourMatch) return `${String(hourMatch[1]).padStart(2, '0')}:00`;
+        return '';
+    }
+
+    function parseAssistantRescheduleFromText(text = '') {
+        const original = String(text || '').trim();
+        if (!original || !isAssistantRescheduleIntent(original)) return null;
+
+        const isoDates = Array.from(original.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g)).map(m => m[1]);
+        const hhmmTimes = Array.from(original.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g))
+            .map(m => `${String(m[1]).padStart(2, '0')}:${m[2]}`);
+
+        const inferredDate = parseAssistantDateHint(original);
+        const inferredTime = parseAssistantTimeHint(original);
+
+        const targetDate = isoDates.length >= 2 ? isoDates[0] : '';
+        const targetStart = hhmmTimes.length >= 2 ? hhmmTimes[0] : '';
+        const newDate = isoDates.length >= 2 ? isoDates[isoDates.length - 1] : inferredDate;
+        const newStart = hhmmTimes.length >= 2 ? hhmmTimes[hhmmTimes.length - 1] : inferredTime;
+
+        if (!newStart && !newDate) return null;
+
+        const titleMatch = original.match(/(?:reprograma(?:r)?|reagenda(?:r)?|mueve?|cambia(?:r)?(?:\s+el\s+horario)?|reschedule)(?:\s+|[:.,;-])+(?:el|la)?\s*(?:evento\s*)?(?:de\s*)?(.+?)(?:\s+(?:para|to)\b|$)/i);
+        const title = stripLeadingCommandWords(String(titleMatch?.[1] || '').trim());
+        if (!title) return null;
+
+        return {
+            action: 'reschedule_event',
+            title,
+            ...(newDate ? { new_date: newDate } : {}),
+            ...(newStart ? { new_start: newStart } : {}),
+            ...(targetDate ? { target_date: targetDate } : {}),
+            ...(targetStart ? { target_start: targetStart } : {}),
+        };
+    }
+
+    function parseAssistantDeleteFromText(text = '') {
+        const original = String(text || '').trim();
+        if (!original || !isAssistantDeleteIntent(original)) return null;
+
+        const date = parseAssistantDateHint(original);
+        const start = parseAssistantTimeHint(original);
+        const titleMatch = original.match(/(?:elimina(?:r)?|borra(?:r)?|cancela(?:r)?|delete|remove)\s+(?:el|la)?\s*(?:evento\s*)?(?:de\s*)?(.+?)(?:\s+(?:para|de|del|el|la)\b|$)/i);
+        const title = String(titleMatch?.[1] || '').trim();
+        if (!title) return null;
+
+        return {
+            action: 'delete_event',
+            title,
+            ...(date ? { date } : {}),
+            ...(start ? { start } : {}),
+        };
+    }
+
+    function parseAssistantAttendanceFromText(text = '') {
+        const original = String(text || '').trim();
+        if (!original) return null;
+
+        const attendance = parseAttendanceFromText(original);
+        if (!attendance) return null;
+
+        const titleMatch = original.match(/(?:confirma(?:r)?(?:\s+asistencia)?|marcar?\s+(?:como\s+)?(?:pendiente|confirmad[oa]|tentativ[oa]|no\s+asiste)|set\s+attendance\s+to\s+\w+)\s+(?:el|la)?\s*(?:evento\s*)?(?:de\s*)?(.+?)(?:\s+(?:para|de|del|el|la)\b|$)/i);
+        const title = String(titleMatch?.[1] || '').trim();
+        if (!title) return null;
+
+        const date = parseAssistantDateHint(original);
+        const start = parseAssistantTimeHint(original);
+        return {
+            action: 'set_attendance',
+            title,
+            attendance,
+            ...(date ? { date } : {}),
+            ...(start ? { start } : {}),
+        };
+    }
+
+    function parseAssistantCreateFromText(text = '') {
+        const original = String(text || '').trim();
+        if (!original || !isAssistantCreateIntent(original)) return null;
+        if (isAssistantRescheduleIntent(original)) return null;
+
+        const lower = original.toLowerCase();
+
+        let date = '';
+        if (/\bhoy\b|\btoday\b|\bhoje\b/i.test(lower)) {
+            date = formatISODate(new Date());
+        } else if (/\bmañana\b|\bmanana\b|\btomorrow\b|\bamanh[ãa]\b/i.test(lower)) {
+            date = formatISODate(addDays(new Date(), 1));
+        } else {
+            const dateMatch = original.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+            if (dateMatch) date = dateMatch[1];
+        }
+
+        let start = '';
+        const hhmm = original.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+        if (hhmm) {
+            start = `${String(hhmm[1]).padStart(2, '0')}:${hhmm[2]}`;
+        } else {
+            const hourMatch = original.match(/(?:a\s+las|a\s+la|at|às|as)\s*([01]?\d|2[0-3])\b/i);
+            if (hourMatch) {
+                start = `${String(hourMatch[1]).padStart(2, '0')}:00`;
+            }
+        }
+
+        let title = '';
+        const titleMatch = original.match(/(?:llamad[oa]|titulad[oa]|title|named)\s+(.+)$/i);
+        if (titleMatch?.[1]) {
+            title = stripLeadingCommandWords(titleMatch[1].trim());
+        } else {
+            const cleaned = original
+                .replace(/^(?:crear|crea|agendar|agenda|programar|programa|add|create|schedule|criar)(?:\s+|[:.,;-])+/i, '')
+                .replace(/\b(hoy|mañana|manana|today|tomorrow|hoje|amanhã|amanha)\b/ig, '')
+                .replace(/(?:a\s+las|a\s+la|at|às|as)\s*([01]?\d|2[0-3])(?::([0-5]\d))?/ig, '')
+                .replace(/\b(\d{4}-\d{2}-\d{2})\b/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            title = stripLeadingCommandWords(cleaned) || 'Evento';
+        }
+
+        if (!date || !start) return null;
+
+        return {
+            action: 'create_event',
+            title,
+            date,
+            start,
+            duration_minutes: 60,
+            description: '',
+            color: '#2563eb',
+        };
+    }
+
+    function assistantShortText(key, vars = {}) {
+        const lang = String(assistantLocale || 'es').slice(0, 2);
+        const dict = {
+            es: {
+                confirmDelete: '¿Confirmas eliminar este evento? Responde "sí" para confirmar o "no" para cancelar.\n- {{event}}',
+                confirmUpdate: '¿Confirmas actualizar este evento? Responde "sí" para confirmar o "no" para cancelar.\nAntes: {{before}}\nDespués: {{after}}',
+                pendingNeedDecision: 'Hay una acción pendiente. Responde "sí" para confirmar o "no" para cancelar.',
+                actionCancelled: 'Acción cancelada.',
+                eventNotFound: 'No encontré un evento que coincida con tu solicitud.',
+                eventAmbiguous: 'Encontré varios eventos posibles. Indica más detalle (fecha/hora) o usa el formulario para seleccionar uno.\n{{options}}',
+                eventUpdated: 'Evento actualizado: {{event}}',
+                eventDeleted: 'Evento eliminado: {{event}}',
+                rescheduleConflict: 'Ese horario entra en conflicto con: {{conflicts}}\nSugerencias: {{suggestions}}',
+                rescheduleNoSuggestion: 'Ese horario entra en conflicto y no encontré huecos cercanos. Indica otra fecha/hora.',
+                attendanceUpdated: 'Asistencia actualizada: {{event}} · {{status}}',
+                attendanceInvalid: 'No entendí el estado de asistencia. Usa: pendiente, confirmado, tentativo o no asiste.',
+            },
+            en: {
+                confirmDelete: 'Do you confirm deleting this event? Reply "yes" to confirm or "no" to cancel.\n- {{event}}',
+                confirmUpdate: 'Do you confirm updating this event? Reply "yes" to confirm or "no" to cancel.\nBefore: {{before}}\nAfter: {{after}}',
+                pendingNeedDecision: 'There is a pending action. Reply "yes" to confirm or "no" to cancel.',
+                actionCancelled: 'Action cancelled.',
+                eventNotFound: 'I could not find a matching event for your request.',
+                eventAmbiguous: 'I found multiple possible events. Please provide more detail (date/time) or use the form to pick one.\n{{options}}',
+                eventUpdated: 'Event updated: {{event}}',
+                eventDeleted: 'Event deleted: {{event}}',
+                rescheduleConflict: 'That time conflicts with: {{conflicts}}\nSuggestions: {{suggestions}}',
+                rescheduleNoSuggestion: 'That time conflicts and I could not find nearby free slots. Please provide another date/time.',
+                attendanceUpdated: 'Attendance updated: {{event}} · {{status}}',
+                attendanceInvalid: 'I could not understand the attendance status. Use: pending, confirmed, tentative, or declined.',
+            },
+            pt: {
+                confirmDelete: 'Você confirma excluir este evento? Responda "sim" para confirmar ou "não" para cancelar.\n- {{event}}',
+                confirmUpdate: 'Você confirma atualizar este evento? Responda "sim" para confirmar ou "não" para cancelar.\nAntes: {{before}}\nDepois: {{after}}',
+                pendingNeedDecision: 'Há uma ação pendente. Responda "sim" para confirmar ou "não" para cancelar.',
+                actionCancelled: 'Ação cancelada.',
+                eventNotFound: 'Não encontrei um evento correspondente ao seu pedido.',
+                eventAmbiguous: 'Encontrei vários eventos possíveis. Informe mais detalhes (data/hora) ou use o formulário para selecionar um.\n{{options}}',
+                eventUpdated: 'Evento atualizado: {{event}}',
+                eventDeleted: 'Evento excluído: {{event}}',
+                rescheduleConflict: 'Esse horário conflita com: {{conflicts}}\nSugestões: {{suggestions}}',
+                rescheduleNoSuggestion: 'Esse horário conflita e não encontrei horários livres próximos. Informe outra data/hora.',
+                attendanceUpdated: 'Presença atualizada: {{event}} · {{status}}',
+                attendanceInvalid: 'Não entendi o status de presença. Use: pendente, confirmado, tentativo ou recusado.',
+            }
+        };
+        const template = (dict[lang] && dict[lang][key]) || dict.es[key] || key;
+        return Object.entries(vars).reduce((acc, [k, v]) => acc.replaceAll(`{{${k}}}`, String(v ?? '')), template);
+    }
+
+    function normalizeLooseText(value = '') {
+        return String(value || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function titleMatchesLoose(eventTitle = '', requestedTitle = '') {
+        const evTitle = normalizeLooseText(eventTitle);
+        const reqTitle = normalizeLooseText(requestedTitle);
+        if (!evTitle || !reqTitle) return false;
+
+        if (evTitle === reqTitle || evTitle.includes(reqTitle) || reqTitle.includes(evTitle)) {
+            return true;
+        }
+
+        const evTokens = new Set(evTitle.split(' ').filter(Boolean));
+        const reqTokens = reqTitle.split(' ').filter(Boolean);
+        if (!evTokens.size || !reqTokens.length) return false;
+
+        const relevantReqTokens = reqTokens.filter(t => t.length >= 3);
+        const source = relevantReqTokens.length ? relevantReqTokens : reqTokens;
+        const overlap = source.filter(t => evTokens.has(t)).length;
+        if (!source.length) return false;
+        return overlap >= Math.min(2, source.length);
+    }
+
+    function isAssistantConfirmText(text = '') {
+        const t = normalizeLooseText(text);
+        return /^(si|yes|y|ok|dale|confirmo|confirmar|confirm|sim)\b/.test(t);
+    }
+
+    function isAssistantCancelText(text = '') {
+        const t = normalizeLooseText(text);
+        return /^(no|cancel|cancelar|negar|nao|não)\b/.test(t);
+    }
+
+    function formatEventLine(ev = {}) {
+        const title = String(ev.title || 'Evento').trim();
+        const date = String(ev.date || '').trim();
+        const start = String(ev.start || '').trim();
+        const end = String(ev.end || '').trim();
+        const attendance = getAttendanceLabel(ev.attendance);
+        return `${date} ${start}-${end} ${title} [${attendance}]`.trim();
+    }
+
+    function getAttendanceFromAction(action = {}) {
+        return normalizeAttendanceStatus(
+            action.attendance
+            || action.attendance_status
+            || action.rsvp
+            || action.status,
+            ''
+        );
+    }
+
+    function resolveActionCandidates(action = {}, events = []) {
+        if (!Array.isArray(events) || !events.length) return [];
+        const target = action.target || action.where || {};
+
+        const id = String(action.event_id || action.id || target.id || '').trim();
+        if (id) {
+            return events.filter(ev => String(ev.id) === id);
+        }
+
+        const title = normalizeLooseText(
+            action.title
+            || action.event_title
+            || action.event
+            || action.name
+            || action.target_title
+            || target.title
+            || target.event_title
+            || target.event
+            || target.name
+            || ''
+        );
+
+        const rawTargetDate = String(
+            action.target_date
+            || action.current_date
+            || target.date
+            || target.current_date
+            || ''
+        ).trim();
+        const rawDate = rawTargetDate || String(action.date || '').trim();
+        const parsedDate = parseAssistantDateHint(rawDate);
+        const date = /^\d{4}-\d{2}-\d{2}$/.test(parsedDate)
+            ? parsedDate
+            : (/^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : '');
+
+        const rawTargetStart = String(
+            action.target_start
+            || action.current_start
+            || target.start
+            || target.current_start
+            || ''
+        ).trim();
+        const rawStart = rawTargetStart || String(action.start || '').trim();
+        const parsedStart = parseAssistantTimeHint(rawStart);
+        const start = /^\d{2}:\d{2}$/.test(parsedStart)
+            ? parsedStart
+            : (/^\d{2}:\d{2}$/.test(rawStart) ? rawStart : '');
+
+        if (!title && !date && !start) return [];
+
+        const narrowIfAny = (list, predicate) => {
+            const narrowed = list.filter(predicate);
+            return narrowed.length ? narrowed : list;
+        };
+
+        let candidates = [...events];
+        if (title) {
+            candidates = candidates.filter(ev => titleMatchesLoose(ev.title || '', title));
+        }
+        if (date) {
+            candidates = rawTargetDate
+                ? candidates.filter(ev => String(ev.date || '') === date)
+                : narrowIfAny(candidates, ev => String(ev.date || '') === date);
+        }
+        if (start) {
+            candidates = rawTargetStart
+                ? candidates.filter(ev => String(ev.start || '') === start)
+                : narrowIfAny(candidates, ev => String(ev.start || '') === start);
+        }
+        return candidates;
+    }
+
+    function getUpdatePayloadFromAction(action = {}) {
+        const explicit = action.updates || action.set || action.changes || {};
+        const normalizedDate = parseAssistantDateHint(
+            action.new_date
+            || explicit.date
+            || ''
+        );
+        const fromRoot = {
+            title: action.new_title,
+            date: normalizedDate || action.new_date,
+            start: action.new_start,
+            end: action.new_end,
+            description: action.new_description,
+            color: action.new_color,
+            reminder_offset: action.reminder_offset,
+            duration_minutes: action.duration_minutes,
+            attendance: action.new_attendance || action.attendance || action.attendance_status || action.status,
+        };
+        const merged = {
+            ...fromRoot,
+            ...explicit,
+        };
+
+        if (merged.date) {
+            const normalized = parseAssistantDateHint(merged.date);
+            if (normalized) merged.date = normalized;
+        }
+
+        Object.keys(merged).forEach((k) => {
+            if (merged[k] === undefined || merged[k] === null || merged[k] === '') {
+                delete merged[k];
+            }
+        });
+        return merged;
+    }
+
+    function buildUpdateCandidate(event, action) {
+        const updates = getUpdatePayloadFromAction(action);
+        const merged = {
+            ...event,
+            ...updates,
+        };
+
+        const hasStartUpdate = typeof updates.start === 'string' && updates.start.trim() !== '';
+        const hasEndUpdate = typeof updates.end === 'string' && updates.end.trim() !== '';
+        const currentDuration = (() => {
+            const [sh, sm] = String(event.start || '').split(':').map(Number);
+            const [eh, em] = String(event.end || '').split(':').map(Number);
+            if (![sh, sm, eh, em].every(Number.isFinite)) return 60;
+            const startMin = (sh * 60) + sm;
+            const endMin = (eh * 60) + em;
+            return endMin > startMin ? (endMin - startMin) : 60;
+        })();
+
+        if (hasStartUpdate && !hasEndUpdate) {
+            const preferredDuration = Number(updates.duration_minutes);
+            const duration = Number.isFinite(preferredDuration) && preferredDuration > 0
+                ? preferredDuration
+                : currentDuration;
+            const inferredEnd = inferEndFromStart(merged.start, duration);
+            if (inferredEnd) merged.end = inferredEnd;
+        }
+
+        const validation = validateEventPayload({
+            title: merged.title,
+            date: merged.date,
+            start: merged.start,
+            end: merged.end,
+            description: merged.description,
+            color: merged.color,
+            reminder_offset: merged.reminder_offset,
+            duration_minutes: updates.duration_minutes,
+        }, assistantLocale);
+
+        if (!validation.ok) {
+            return { ok: false, error: validation.error };
+        }
+
+        return {
+            ok: true,
+            nextEvent: {
+                ...event,
+                ...validation.data,
+                attendance: normalizeAttendanceStatus(merged.attendance, event.attendance || 'pending'),
+                id: event.id,
+            }
+        };
+    }
+
+    function applyAssistantPendingAction() {
+        if (!assistantPendingAction) return null;
+
+        const pending = assistantPendingAction;
+        const events = getEvents();
+        const index = events.findIndex(ev => ev.id === pending.eventId);
+        if (index === -1) {
+            assistantPendingAction = null;
+            return assistantShortText('eventNotFound');
+        }
+
+        if (pending.type === 'delete') {
+            const current = events[index];
+            const filtered = events.filter(ev => ev.id !== current.id);
+            saveEvents(filtered);
+            renderAll();
+            try { notifier.cancelFor(current.id); } catch (e) { console.warn('Cancel failed', e); }
+            assistantPendingAction = null;
+            return assistantShortText('eventDeleted', { event: formatEventLine(current) });
+        }
+
+        if (pending.type === 'update') {
+            events[index] = pending.nextEvent;
+            saveEvents(events);
+            renderAll();
+            assistantPendingAction = null;
+            return assistantShortText('eventUpdated', { event: formatEventLine(events[index]) });
+        }
+
+        assistantPendingAction = null;
+        return null;
+    }
+
+    function sanitizeAssistantErrorMessage(message = '') {
+        const raw = String(message || '').trim();
+        if (!raw) return tr('assistant.contactError');
+        return raw
+            // evita exponer tokens completos (ej: sk-xxxx...)
+            .replace(/\b(?:sk|dsk|api)[-_][A-Za-z0-9_-]{10,}\b/gi, '[API_KEY]')
+            // evita exponer sufijos mostrados por algunos proveedores
+            .replace(/(ending\s+(?:in|with)\s+)[A-Za-z0-9_-]{2,}/gi, '$1****');
+    }
+
+    function isInvalidApiKeyError(message = '') {
+        const raw = String(message || '');
+        return /(invalid[\s_-]*api[\s_-]*key|api[\s_-]*key[\s_-]*invalid|unauthorized|\b401\b|invalid_auth|authentication)/i.test(raw);
+    }
+
     async function handleAssistantSubmit(evt) {
         evt.preventDefault();
         if (!assistantInput) return;
         const text = assistantInput.value.trim();
         if (!text) return;
 
+        const apiKeyCmd = text.match(/^\/(?:apikey|api_key)\s+(.+)$/i);
+        if (apiKeyCmd) {
+            const key = saveAndroidAssistantApiKey(apiKeyCmd[1]);
+            assistantInput.value = '';
+            appendAssistantMessage({ role: 'assistant', content: key ? tr('assistant.apiKeySaved') : tr('assistant.apiKeyMissing') });
+            setAssistantStatus(key ? tr('assistant.apiKeySaved') : tr('assistant.apiKeyMissing'));
+            return;
+        }
+
+        const ttsApiKeyCmd = text.match(/^\/(?:ttskey|elevenlabs_key)\s+(.+)$/i);
+        if (ttsApiKeyCmd) {
+            const cfg = getAssistantConfig();
+            const selectedProvider = normalizeTtsProviderValue(cfg.ttsProvider || 'elevenlabs') || 'elevenlabs';
+            const key = saveApiKeyByProvider(selectedProvider, ttsApiKeyCmd[1]);
+            assistantInput.value = '';
+            appendAssistantMessage({ role: 'assistant', content: key ? tr('assistant.ttsApiKeySaved') : tr('assistant.ttsApiKeyMissing') });
+            setAssistantStatus(key ? tr('assistant.ttsApiKeySaved') : tr('assistant.ttsApiKeyMissing'));
+            return;
+        }
+
+        const ttsApiKeyProviderCmd = text.match(/^\/(?:ttskey|elevenlabs_key)\s+(elevenlabs|openai|google|11labs)\s+(.+)$/i);
+        if (ttsApiKeyProviderCmd) {
+            const provider = normalizeTtsProviderValue(ttsApiKeyProviderCmd[1]);
+            const key = saveApiKeyByProvider(provider, ttsApiKeyProviderCmd[2]);
+            assistantInput.value = '';
+            const msg = key
+                ? tr('assistant.ttsApiKeySavedProvider', { provider })
+                : tr('assistant.ttsApiKeyMissing');
+            appendAssistantMessage({ role: 'assistant', content: msg });
+            setAssistantStatus(msg);
+            return;
+        }
+
+        const ttsProviderCmd = text.match(/^\/(?:ttsprovider)\s+(.+)$/i);
+        if (ttsProviderCmd) {
+            const provider = saveAssistantTtsProvider(ttsProviderCmd[1]);
+            assistantInput.value = '';
+            const msg = provider
+                ? tr('assistant.ttsProviderSaved', { provider })
+                : tr('assistant.ttsProviderInvalid');
+            appendAssistantMessage({ role: 'assistant', content: msg });
+            setAssistantStatus(msg);
+            return;
+        }
+
+        const sttProviderCmd = text.match(/^\/(?:sttprovider|stt)\s+(.+)$/i);
+        if (sttProviderCmd) {
+            const provider = saveAssistantSttProvider(sttProviderCmd[1]);
+            assistantInput.value = '';
+            const msg = provider
+                ? tr('assistant.sttProviderSaved', { provider })
+                : tr('assistant.sttProviderInvalid');
+            appendAssistantMessage({ role: 'assistant', content: msg });
+            setAssistantStatus(msg);
+            return;
+        }
+
+        const sttKeyCmd = text.match(/^\/(?:sttkey)\s+(?:(elevenlabs|openai|google|11labs)\s+)?(.+)$/i);
+        if (sttKeyCmd) {
+            const cfg = getAssistantConfig();
+            const provider = normalizeSttProviderValue(sttKeyCmd[1] || cfg.sttProvider || 'elevenlabs') || 'elevenlabs';
+            const key = saveApiKeyByProvider(provider, sttKeyCmd[2]);
+            assistantInput.value = '';
+            const msg = key
+                ? tr('assistant.sttApiKeySaved', { provider })
+                : tr('assistant.sttApiKeyMissing');
+            appendAssistantMessage({ role: 'assistant', content: msg });
+            setAssistantStatus(msg);
+            return;
+        }
+
+        const ttsVoiceCmd = text.match(/^\/(?:ttsvoice|voiceid)\s+(.+)$/i);
+        if (ttsVoiceCmd) {
+            const voice = saveAndroidAssistantTtsVoice(ttsVoiceCmd[1]);
+            assistantInput.value = '';
+            appendAssistantMessage({ role: 'assistant', content: voice ? tr('assistant.ttsVoiceSaved', { voice }) : tr('assistant.ttsVoiceMissing') });
+            setAssistantStatus(voice ? tr('assistant.ttsVoiceSaved', { voice }) : tr('assistant.ttsVoiceMissing'));
+            return;
+        }
+
+        const ttsFemaleCmd = text.match(/^\/(?:ttsfemale|voxfemenina|vozfemenina)$/i);
+        if (ttsFemaleCmd) {
+            const voice = saveAndroidAssistantTtsVoice(ASSISTANT_ANDROID_FEMALE_TTS_VOICE);
+            assistantInput.value = '';
+            appendAssistantMessage({ role: 'assistant', content: tr('assistant.ttsFemaleVoiceSet', { voice }) });
+            setAssistantStatus(tr('assistant.ttsFemaleVoiceSet', { voice }));
+            return;
+        }
+
+        if (assistantPendingAction) {
+            appendAssistantMessage({ role: 'user', content: text });
+            assistantInput.value = '';
+
+            if (isAssistantCancelText(text)) {
+                assistantPendingAction = null;
+                const msg = assistantShortText('actionCancelled');
+                appendAssistantMessage({ role: 'assistant', content: msg });
+                setAssistantStatus(msg);
+                return;
+            }
+
+            if (isAssistantConfirmText(text)) {
+                const msg = applyAssistantPendingAction() || assistantShortText('eventNotFound');
+                appendAssistantMessage({ role: 'assistant', content: msg });
+                setAssistantStatus('');
+                await speakAssistantText(msg);
+                return;
+            }
+
+            const msg = assistantShortText('pendingNeedDecision');
+            appendAssistantMessage({ role: 'assistant', content: msg });
+            setAssistantStatus(msg);
+            return;
+        }
+
         appendAssistantMessage({ role: 'user', content: text });
         assistantInput.value = '';
     setAssistantStatus(tr('assistant.sending'));
         setAssistantBusy(true);
 
+        const localRescheduleAction = parseAssistantRescheduleFromText(text);
+        if (localRescheduleAction) {
+            const actionResult = handleAssistantAction(JSON.stringify(localRescheduleAction));
+            if (actionResult?.handled) {
+                await speakAssistantText(actionResult.spokenText || '');
+                setAssistantStatus('');
+                setAssistantBusy(false);
+                scrollAssistantBottom();
+                return;
+            }
+        }
+
+        const localCreateAction = parseAssistantCreateFromText(text);
+        if (localCreateAction) {
+            const actionResult = handleAssistantAction(JSON.stringify(localCreateAction));
+            if (actionResult?.handled) {
+                await speakAssistantText(actionResult.spokenText || '');
+                setAssistantStatus('');
+                setAssistantBusy(false);
+                scrollAssistantBottom();
+                return;
+            }
+        }
+
+        const localDeleteAction = parseAssistantDeleteFromText(text);
+        if (localDeleteAction) {
+            const actionResult = handleAssistantAction(JSON.stringify(localDeleteAction));
+            if (actionResult?.handled) {
+                await speakAssistantText(actionResult.spokenText || '');
+                setAssistantStatus('');
+                setAssistantBusy(false);
+                scrollAssistantBottom();
+                return;
+            }
+        }
+
+        const localAttendanceAction = parseAssistantAttendanceFromText(text);
+        if (localAttendanceAction) {
+            const actionResult = handleAssistantAction(JSON.stringify(localAttendanceAction));
+            if (actionResult?.handled) {
+                await speakAssistantText(actionResult.spokenText || '');
+                setAssistantStatus('');
+                setAssistantBusy(false);
+                scrollAssistantBottom();
+                return;
+            }
+        }
+
         // Consulta rápida local: eventos de hoy/semana/mes
-        const quickRange = detectAssistantRange(text);
+        const quickRange = isAssistantCreateIntent(text) ? null : detectAssistantRange(text);
         if (quickRange) {
             const list = getEventsByRange(quickRange);
             const reply = formatAssistantEvents(list, quickRange);
@@ -1292,7 +2662,23 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             return;
         }
 
-        const cfg = getAssistantConfig();
+        let cfg = getAssistantConfig();
+        const canUseBridgeStream = typeof window.appBridge?.chatStream === 'function' && typeof window.appBridge?.onAssistantChunk === 'function';
+        const canUseBridgeChat = typeof window.appBridge?.chat === 'function';
+        const canUseAndroidNativeChat = !canUseBridgeStream && !canUseBridgeChat && isAndroidRuntime();
+
+        if (isAndroidRuntime()) {
+            const key = ensureAndroidAssistantApiKey();
+            if (!key) {
+                const msg = tr('assistant.apiKeyMissing');
+                appendAssistantMessage({ role: 'assistant', content: `⚠️ ${msg}` });
+                setAssistantStatus(msg);
+                setAssistantBusy(false);
+                scrollAssistantBottom();
+                return;
+            }
+            cfg = getAssistantConfig();
+        }
 
         const messagesForApi = buildAssistantPayload();
         try {
@@ -1301,57 +2687,68 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             appendAssistantMessage(assistantMsg);
             let safetyTimer = null;
 
-            if (!window.appBridge?.chatStream) {
-                throw new Error(tr('assistant.desktopOnly'));
-            }
+            let finalReply = '';
+            if (canUseBridgeStream) {
+                // Suscribir a los chunks de streaming
+                assistantUnsubscribe?.();
+                assistantUnsubscribe = window.appBridge.onAssistantChunk((data) => {
+                    if (!data || data.requestId !== requestId) return;
+                    if (data.delta) {
+                        assistantMsg.content += data.delta;
+                        renderAssistantMessages();
+                    } else if (typeof data.content === 'string' && data.content.length > assistantMsg.content.length) {
+                        // Fallback cuando el proveedor envía el texto completo en cada chunk
+                        assistantMsg.content = data.content;
+                        renderAssistantMessages();
+                    }
+                    if (data.done) {
+                        setAssistantStatus('');
+                        setAssistantBusy(false);
+                        assistantUnsubscribe?.();
+                        assistantUnsubscribe = null;
+                        if (safetyTimer) clearTimeout(safetyTimer);
+                    }
+                    scrollAssistantBottom();
+                });
 
-            // Suscribir a los chunks de streaming
-            assistantUnsubscribe?.();
-            assistantUnsubscribe = window.appBridge.onAssistantChunk((data) => {
-                if (!data || data.requestId !== requestId) return;
-                if (data.delta) {
-                    assistantMsg.content += data.delta;
-                    renderAssistantMessages();
-                } else if (typeof data.content === 'string' && data.content.length > assistantMsg.content.length) {
-                    // Fallback cuando el proveedor envía el texto completo en cada chunk
-                    assistantMsg.content = data.content;
-                    renderAssistantMessages();
-                }
-                if (data.done) {
-                    setAssistantStatus('');
+                // Cortafuegos por si el streaming no termina nunca
+                safetyTimer = setTimeout(() => {
+                    setAssistantStatus(tr('assistant.noResponse'));
                     setAssistantBusy(false);
                     assistantUnsubscribe?.();
                     assistantUnsubscribe = null;
-                    if (safetyTimer) clearTimeout(safetyTimer);
+                    scrollAssistantBottom();
+                }, 45000);
+
+                try {
+                    finalReply = await window.appBridge.chatStream({
+                        messages: messagesForApi,
+                        requestId,
+                        provider: cfg.provider
+                    });
+                } catch (streamErr) {
+                    console.error('assistant stream failed, fallback to non-stream', streamErr);
+                    if (!canUseBridgeChat) throw streamErr;
+                    setAssistantStatus(tr('assistant.streamFallback'));
+                    // Fallback sin streaming para no dejar colgado el UI
+                    finalReply = await window.appBridge.chat({
+                        messages: messagesForApi,
+                        provider: cfg.provider,
+                        retry: true
+                    });
                 }
-                scrollAssistantBottom();
-            });
-
-            // Cortafuegos por si el streaming no termina nunca
-            safetyTimer = setTimeout(() => {
-                setAssistantStatus(tr('assistant.noResponse'));
-                setAssistantBusy(false);
-                assistantUnsubscribe?.();
-                assistantUnsubscribe = null;
-                scrollAssistantBottom();
-            }, 45000);
-
-            let finalReply = '';
-            try {
-                finalReply = await window.appBridge.chatStream({
-                    messages: messagesForApi,
-                    requestId,
-                    provider: cfg.provider
-                });
-            } catch (streamErr) {
-                console.error('assistant stream failed, fallback to non-stream', streamErr);
-                setAssistantStatus(tr('assistant.streamFallback'));
-                // Fallback sin streaming para no dejar colgado el UI
+            } else if (canUseBridgeChat) {
                 finalReply = await window.appBridge.chat({
                     messages: messagesForApi,
                     provider: cfg.provider,
-                    retry: true
+                    retry: false
                 });
+            } else if (canUseAndroidNativeChat) {
+                const androidApiKey = String(cfg.androidApiKey || '').trim();
+                if (!androidApiKey) throw new Error('NO_API_KEY');
+                finalReply = await callAssistantAndroid(messagesForApi, { provider: cfg.provider });
+            } else {
+                throw new Error(tr('assistant.mobileFallback'));
             }
 
             if (safetyTimer) clearTimeout(safetyTimer);
@@ -1369,9 +2766,12 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         } catch (err) {
             console.error('assistant error', err);
             const rawMsg = err?.message || tr('assistant.contactError');
+            const sanitized = sanitizeAssistantErrorMessage(rawMsg);
             const msg = /NO_API_KEY|Falta API key/i.test(rawMsg)
-                ? tr('assistant.missingApiKey')
-                : rawMsg;
+                ? (isAndroidRuntime() ? tr('assistant.apiKeyMissing') : tr('assistant.missingApiKey'))
+                : isInvalidApiKeyError(rawMsg)
+                    ? tr('assistant.invalidApiKey')
+                    : sanitized;
             appendAssistantMessage({ role: 'assistant', content: `⚠️ ${msg}` });
             setAssistantStatus(msg);
         } finally {
@@ -1410,7 +2810,250 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
     function handleAssistantAction(content = '', { messageRef } = {}) {
         const action = extractAssistantAction(content);
-        if (!action || action.action !== 'create_event') return { handled: false };
+        if (!action) return { handled: false };
+
+        if (action.action === 'confirm_attendance') {
+            return handleAssistantAction(JSON.stringify({ ...action, action: 'set_attendance', attendance: 'confirmed' }), { messageRef });
+        }
+        if (action.action === 'decline_attendance') {
+            return handleAssistantAction(JSON.stringify({ ...action, action: 'set_attendance', attendance: 'declined' }), { messageRef });
+        }
+        if (action.action === 'tentative_attendance') {
+            return handleAssistantAction(JSON.stringify({ ...action, action: 'set_attendance', attendance: 'tentative' }), { messageRef });
+        }
+
+        if (action.action === 'set_attendance' || action.action === 'update_attendance' || action.action === 'rsvp_event') {
+            const events = getEvents();
+            const candidates = resolveActionCandidates(action, events);
+            const nextAttendance = getAttendanceFromAction(action);
+
+            if (!nextAttendance) {
+                const msg = assistantShortText('attendanceInvalid');
+                if (messageRef) {
+                    messageRef.content = msg;
+                    renderAssistantMessages();
+                    saveAssistantHistory();
+                } else {
+                    appendAssistantMessage({ role: 'assistant', content: msg });
+                }
+                return { handled: true, spokenText: msg };
+            }
+
+            if (!candidates.length) {
+                const msg = assistantShortText('eventNotFound');
+                if (messageRef) {
+                    messageRef.content = msg;
+                    renderAssistantMessages();
+                    saveAssistantHistory();
+                } else {
+                    appendAssistantMessage({ role: 'assistant', content: msg });
+                }
+                return { handled: true, spokenText: msg };
+            }
+
+            if (candidates.length > 1) {
+                const options = candidates.slice(0, 5).map(ev => `- ${formatEventLine(ev)}`).join('\n');
+                const msg = assistantShortText('eventAmbiguous', { options });
+                if (messageRef) {
+                    messageRef.content = msg;
+                    renderAssistantMessages();
+                    saveAssistantHistory();
+                } else {
+                    appendAssistantMessage({ role: 'assistant', content: msg });
+                }
+                return { handled: true, spokenText: msg };
+            }
+
+            const current = candidates[0];
+            setEventAttendance(current.id, nextAttendance);
+            const updated = getEvents().find(ev => ev.id === current.id) || { ...current, attendance: nextAttendance };
+            const msg = assistantShortText('attendanceUpdated', {
+                event: formatEventLine(updated),
+                status: getAttendanceLabel(nextAttendance),
+            });
+            if (messageRef) {
+                messageRef.content = msg;
+                renderAssistantMessages();
+                saveAssistantHistory();
+            } else {
+                appendAssistantMessage({ role: 'assistant', content: msg });
+            }
+            return { handled: true, spokenText: msg };
+        }
+
+        if (action.action === 'delete_event') {
+            const events = getEvents();
+            const candidates = resolveActionCandidates(action, events);
+
+            if (!candidates.length) {
+                const msg = assistantShortText('eventNotFound');
+                if (messageRef) {
+                    messageRef.content = msg;
+                    renderAssistantMessages();
+                    saveAssistantHistory();
+                } else {
+                    appendAssistantMessage({ role: 'assistant', content: msg });
+                }
+                return { handled: true, spokenText: msg };
+            }
+
+            if (candidates.length > 1) {
+                const options = candidates.slice(0, 5).map(ev => `- ${formatEventLine(ev)}`).join('\n');
+                const msg = assistantShortText('eventAmbiguous', { options });
+                if (messageRef) {
+                    messageRef.content = msg;
+                    renderAssistantMessages();
+                    saveAssistantHistory();
+                } else {
+                    appendAssistantMessage({ role: 'assistant', content: msg });
+                }
+                return { handled: true, spokenText: msg };
+            }
+
+            const target = candidates[0];
+            assistantPendingAction = {
+                type: 'delete',
+                eventId: target.id,
+            };
+            const msg = assistantShortText('confirmDelete', { event: formatEventLine(target) });
+            if (messageRef) {
+                messageRef.content = msg;
+                renderAssistantMessages();
+                saveAssistantHistory();
+            } else {
+                appendAssistantMessage({ role: 'assistant', content: msg });
+            }
+            return { handled: true, spokenText: msg };
+        }
+
+        if (action.action === 'update_event') {
+            const events = getEvents();
+            const candidates = resolveActionCandidates(action, events);
+
+            if (!candidates.length) {
+                const msg = assistantShortText('eventNotFound');
+                if (messageRef) {
+                    messageRef.content = msg;
+                    renderAssistantMessages();
+                    saveAssistantHistory();
+                } else {
+                    appendAssistantMessage({ role: 'assistant', content: msg });
+                }
+                return { handled: true, spokenText: msg };
+            }
+
+            if (candidates.length > 1) {
+                const options = candidates.slice(0, 5).map(ev => `- ${formatEventLine(ev)}`).join('\n');
+                const msg = assistantShortText('eventAmbiguous', { options });
+                if (messageRef) {
+                    messageRef.content = msg;
+                    renderAssistantMessages();
+                    saveAssistantHistory();
+                } else {
+                    appendAssistantMessage({ role: 'assistant', content: msg });
+                }
+                return { handled: true, spokenText: msg };
+            }
+
+            const current = candidates[0];
+            const updateCandidate = buildUpdateCandidate(current, action);
+            if (!updateCandidate.ok) {
+                const msg = updateCandidate.error || assistantShortText('eventNotFound');
+                if (messageRef) {
+                    messageRef.content = msg;
+                    renderAssistantMessages();
+                    saveAssistantHistory();
+                } else {
+                    appendAssistantMessage({ role: 'assistant', content: msg });
+                }
+                return { handled: true, spokenText: msg };
+            }
+
+            const conflicts = findEventConflicts(updateCandidate.nextEvent, events, current.id);
+            if (conflicts.length) {
+                const conflictText = conflicts.slice(0, 3).map(formatEventLine).join(' | ');
+                const suggestions = suggestRescheduleSlots(updateCandidate.nextEvent, events, {
+                    ignoreEventId: current.id,
+                    maxSuggestions: 3,
+                    stepMinutes: 30,
+                });
+
+                const msg = suggestions.length
+                    ? assistantShortText('rescheduleConflict', {
+                        conflicts: conflictText,
+                        suggestions: suggestions.map(s => `${s.date} ${s.start}-${s.end}`).join(' | '),
+                    })
+                    : assistantShortText('rescheduleNoSuggestion');
+
+                if (messageRef) {
+                    messageRef.content = msg;
+                    renderAssistantMessages();
+                    saveAssistantHistory();
+                } else {
+                    appendAssistantMessage({ role: 'assistant', content: msg });
+                }
+                return { handled: true, spokenText: msg };
+            }
+
+            assistantPendingAction = {
+                type: 'update',
+                eventId: current.id,
+                nextEvent: updateCandidate.nextEvent,
+            };
+
+            const msg = assistantShortText('confirmUpdate', {
+                before: formatEventLine(current),
+                after: formatEventLine(updateCandidate.nextEvent),
+            });
+
+            if (messageRef) {
+                messageRef.content = msg;
+                renderAssistantMessages();
+                saveAssistantHistory();
+            } else {
+                appendAssistantMessage({ role: 'assistant', content: msg });
+            }
+            return { handled: true, spokenText: msg };
+        }
+
+        if (action.action === 'reschedule_event' || action.action === 'reprogram_event') {
+            const target = action.target || action.where || {};
+            const mapped = {
+                ...action,
+                action: 'update_event',
+                new_date: action.new_date || parseAssistantDateHint(action.date || ''),
+                new_start: action.new_start || action.start,
+                new_end: action.new_end || action.end,
+                date: action.target_date || target.date || '',
+                start: action.target_start || target.start || '',
+                title: action.target_title || target.title || action.title || action.event_title || action.event || action.name,
+            };
+
+            if (!mapped.date) delete mapped.date;
+            if (!mapped.start) delete mapped.start;
+
+            const hasExplicitTarget = !!(
+                action.event_id
+                || action.id
+                || target.id
+                || action.target_date
+                || action.target_start
+                || action.target_title
+                || target.date
+                || target.start
+                || target.title
+            );
+
+            if (!hasExplicitTarget) {
+                delete mapped.date;
+                delete mapped.start;
+                delete mapped.end;
+            }
+
+            return handleAssistantAction(JSON.stringify(mapped), { messageRef });
+        }
+
+        if (action.action !== 'create_event') return { handled: false };
 
         const validation = validateEventPayload(action, assistantLocale);
         if (!validation.ok) {
@@ -1470,7 +3113,8 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
         const lines = upcoming.map(ev => {
             const desc = ev.description ? ` — ${ev.description}` : '';
-            return `- ${ev.date} ${ev.start}-${ev.end} ${ev.title}${desc}`;
+            const attendance = getAttendanceLabel(ev.attendance);
+            return `- ${ev.date} ${ev.start}-${ev.end} ${ev.title}${desc} [${attendance}]`;
         });
         return `Agenda context (max 5 upcoming):\n${lines.join('\n')}`;
     }

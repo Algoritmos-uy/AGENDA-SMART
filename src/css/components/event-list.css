@@ -32,6 +32,17 @@
     gap: var(--space-2);
 }
 
+.event-card__attendance-actions {
+    display: flex;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+}
+
+.event-card__attendance-actions .btn {
+    font-size: var(--size-0);
+    padding: 4px 8px;
+}
+
 .badge {
     background: var(--color-primary-soft);
     color: var(--color-primary-strong);
@@ -39,4 +50,32 @@
     border-radius: 999px;
     font-weight: 700;
     font-size: var(--size-0);
+}
+
+.badge--attendance {
+    border: 1px solid transparent;
+}
+
+.badge--attendance-pending {
+    background: #f3f4f6;
+    color: #374151;
+    border-color: #d1d5db;
+}
+
+.badge--attendance-confirmed {
+    background: #dcfce7;
+    color: #166534;
+    border-color: #86efac;
+}
+
+.badge--attendance-declined {
+    background: #fee2e2;
+    color: #991b1b;
+    border-color: #fca5a5;
+}
+
+.badge--attendance-tentative {
+    background: #fef3c7;
+    color: #92400e;
+    border-color: #fcd34d;
 }

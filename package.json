@@ -22,7 +22,7 @@
   },
   "build": {
     "appId": "com.algoritmia.agenda",
-    "productName": "Agenda-Smart Profesional",
+    "productName": "AgendaIA Smart",
     "files": [
       "index.html",
       "assets/**/*",

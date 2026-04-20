@@ -22,19 +22,21 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace "com.algoritmia.agenda"
     compileSdk libs.versions.compileSdk.get().toInteger()
+    
     defaultConfig {
         applicationId "com.algoritmia.agenda"
-        minSdkVersion rootProject.ext.minSdkVersion
-        targetSdkVersion rootProject.ext.targetSdkVersion
+        minSdkVersion libs.versions.minSdk.get().toInteger()
+        targetSdkVersion libs.versions.targetSdk.get().toInteger()
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
-             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+
     signingConfigs {
         release {
             if (hasReleaseSigning) {
@@ -45,9 +47,11 @@ android {
             }
         }
     }
+
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release
@@ -55,6 +59,15 @@ android {
                 logger.lifecycle('[agenda-android] Release sin firma: falta android/keystore.properties o datos incompletos.')
             }
         }
+        debug {
+            minifyEnabled false
+            debuggable true
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
     }
 }
 
@@ -69,11 +82,14 @@ dependencies {
     implementation libs.androidx.appcompat
     implementation libs.androidx.coordinatorlayout
     implementation libs.androidx.core.splashscreen
+    implementation libs.androidx.activity
+    implementation libs.androidx.fragment
     implementation project(':capacitor-android')
+    implementation project(':capacitor-cordova-android-plugins')
+    
     testImplementation libs.junit
     androidTestImplementation libs.androidx.junit
     androidTestImplementation libs.androidx.espresso.core
-    implementation project(':capacitor-cordova-android-plugins')
 }
 
 apply from: 'capacitor.build.gradle'

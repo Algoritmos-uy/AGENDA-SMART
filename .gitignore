@@ -8,6 +8,11 @@ yarn-error.log*
 # Entornos locales
 .env
 
+# Secrets Android signing
+android/keystore.properties
+*.jks
+*.keystore
+
 # Builds y empaquetados
 dist/
 out/

@@ -4,6 +4,10 @@ import {
   extractAssistantAction,
   normalizeReminderOffset,
   inferEndFromStart,
+  normalizeAttendanceStatus,
+  eventsOverlap,
+  findEventConflicts,
+  suggestRescheduleSlots,
   validateEventPayload,
   toEventPayload,
 } from '../../src/js/utils/assistantEventUtils.js';
@@ -27,6 +31,14 @@ describe('assistantEventUtils', () => {
     expect(normalizeReminderOffset('120')).toBe(120);
     expect(normalizeReminderOffset(-1)).toBe(600);
     expect(normalizeReminderOffset('abc')).toBe(600);
+  });
+
+  it('normaliza estados de asistencia (RSVP) con sinónimos', () => {
+    expect(normalizeAttendanceStatus('confirmado')).toBe('confirmed');
+    expect(normalizeAttendanceStatus('No')).toBe('declined');
+    expect(normalizeAttendanceStatus('tal vez')).toBe('tentative');
+    expect(normalizeAttendanceStatus('')).toBe('pending');
+    expect(normalizeAttendanceStatus('desconocido', '')).toBe('');
   });
 
   it('autocompleta hora fin (+60 min) y limita a 23:59', () => {
@@ -88,6 +100,19 @@ describe('assistantEventUtils', () => {
     expect(event.id).toBeTypeOf('string');
     expect(event.title).toBe('Sprint');
     expect(event.reminder_offset).toBe(300);
+    expect(event.attendance).toBe('pending');
+  });
+
+  it('convierte attendance al crear payload de evento', () => {
+    const event = toEventPayload({
+      title: 'Demo',
+      date: '2026-04-20',
+      start: '09:00',
+      end: '10:00',
+      attendance: 'confirmado',
+    });
+
+    expect(event.attendance).toBe('confirmed');
   });
 
   it('valida y crea end automático cuando falta en payload', () => {
@@ -155,5 +180,44 @@ describe('assistantEventUtils', () => {
     expect(ok.ok).toBe(true);
     expect(ok.data.end).toBe('15:30');
     expect(ok.data.autoDurationMinutes).toBe(90);
+  });
+
+  it('detecta solapamiento de eventos en la misma fecha', () => {
+    expect(eventsOverlap(
+      { date: '2026-04-20', start: '10:00', end: '11:00' },
+      { date: '2026-04-20', start: '10:30', end: '11:30' }
+    )).toBe(true);
+
+    expect(eventsOverlap(
+      { date: '2026-04-20', start: '10:00', end: '11:00' },
+      { date: '2026-04-20', start: '11:00', end: '12:00' }
+    )).toBe(false);
+  });
+
+  it('encuentra conflictos ignorando el mismo evento', () => {
+    const events = [
+      { id: 'a', date: '2026-04-20', start: '10:00', end: '11:00' },
+      { id: 'b', date: '2026-04-20', start: '10:30', end: '11:30' },
+    ];
+    const conflicts = findEventConflicts({ date: '2026-04-20', start: '10:15', end: '10:45' }, events, 'a');
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].id).toBe('b');
+  });
+
+  it('sugiere slots libres para reprogramar cuando hay conflicto', () => {
+    const events = [
+      { id: 'x', date: '2026-04-20', start: '10:00', end: '11:00' },
+      { id: 'y', date: '2026-04-20', start: '11:00', end: '12:00' },
+      { id: 'z', date: '2026-04-20', start: '13:00', end: '14:00' },
+    ];
+    const slots = suggestRescheduleSlots(
+      { id: 'x', date: '2026-04-20', start: '10:00', end: '11:00' },
+      events,
+      { ignoreEventId: 'x', maxSuggestions: 2, stepMinutes: 30 }
+    );
+
+    expect(slots.length).toBeGreaterThan(0);
+    expect(slots[0].date).toBe('2026-04-20');
+    expect(slots[0].start >= '12:00').toBe(true);
   });
 });

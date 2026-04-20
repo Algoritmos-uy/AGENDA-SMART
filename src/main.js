@@ -56,7 +56,7 @@ function createWindow({ startHidden = false } = {}) {
     },
   });
 
-  win.setTitle(`Agenda-Smart Profesional v${app.getVersion()}`);
+  win.setTitle(`AgendaIA Smart Pro v${app.getVersion()}`);
   win.loadFile(indexPath);
 
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -146,12 +146,20 @@ ipcMain.handle('assistant:chatStream', async (event, payload = {}) => {
   return callAssistantStream(messages, { onChunk: sendChunk, provider, retry });
 });
 ipcMain.handle('assistant:transcribeAudio', async (_event, payload = {}) => {
-  const { provider = 'deepseek', language = 'es', mimeType = 'audio/webm', audioBuffer } = payload;
-  return transcribeAudio({ audioBuffer, mimeType, language }, { provider });
+  const {
+    provider = 'deepseek',
+    language = 'es',
+    mimeType = 'audio/webm',
+    audioBuffer,
+    apiKey,
+    apiUrl,
+    model,
+  } = payload;
+  return transcribeAudio({ audioBuffer, mimeType, language }, { provider, apiKey, apiUrl, model });
 });
 ipcMain.handle('assistant:synthesizeSpeech', async (_event, payload = {}) => {
-  const { text = '', provider, language = 'es', voice, format = 'mp3' } = payload;
-  return synthesizeSpeech({ text, language, voice, format }, { provider });
+  const { text = '', provider, language = 'es', voice, format = 'mp3', apiKey, apiUrl, model } = payload;
+  return synthesizeSpeech({ text, language, voice, format }, { provider, apiKey, apiUrl, model });
 });
 ipcMain.handle('assistant:getTelemetry', async () => telemetry.getSnapshot());
 ipcMain.handle('assistant:resetTelemetry', async () => {
@@ -176,7 +184,7 @@ function createTray() {
   const iconName = process.platform === 'win32' ? 'agenda.ico' : 'agenda.png';
   const iconPath = path.join(app.getAppPath(), 'assets', 'icons', iconName);
   tray = new Tray(iconPath);
-  tray.setToolTip('Agenda-Smart Profesional');
+  tray.setToolTip('AgendaIA Smart');
   const template = [
     {
       label: 'Mostrar',

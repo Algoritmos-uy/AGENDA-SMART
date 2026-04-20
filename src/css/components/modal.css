@@ -30,6 +30,8 @@
     flex-direction: column;
     gap: var(--space-3);
     z-index: 1;
+    max-height: calc(100dvh - 1.25rem);
+    overflow: hidden;
 }
 
 .modal__header,
@@ -61,6 +63,8 @@
 .modal__body {
     font-size: 1rem;
     line-height: 1.5;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .modal__close {
@@ -140,6 +144,8 @@
     max-width: 90%;
     line-height: 1.4;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .assistant-msg--user {
@@ -178,6 +184,34 @@
     display: inline-flex;
     gap: var(--space-2);
     align-items: center;
+    flex-wrap: wrap;
+    max-width: 100%;
+}
+
+.assistant-form__buttons .btn,
+.assistant-form__buttons .assistant-toggle {
+    min-width: 0;
+}
+
+@media (max-width: 540px) {
+    .modal {
+        align-items: stretch;
+        padding: 0.5rem;
+    }
+
+    .modal__dialog {
+        width: 100%;
+        max-height: calc(100dvh - 1rem);
+    }
+
+    .assistant-form__actions {
+        align-items: stretch;
+    }
+
+    .assistant-form__buttons {
+        width: 100%;
+        justify-content: flex-start;
+    }
 }
 
 .assistant-toggle {
