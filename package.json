@@ -5,14 +5,15 @@
   "main": "src/main.js",
   "type": "commonjs",
   "scripts": {
+    "android:sync:reminder-audio": "node tools/sync-android-reminder-audio.js",
     "build": "node tools/build.js",
     "start": "npm run build && electron .",
     "dev": "electron .",
-    "build:android": "npm run build && npx cap sync android && cd android && gradlew.bat assembleDebug",
-    "build:android:release": "npm run build && npx cap sync android && cd android && gradlew.bat assembleRelease bundleRelease",
-    "build:android:release:signed": "npm run build && npx cap sync android && cd android && gradlew.bat clean assembleRelease bundleRelease",
-    "build:android:apk:release": "npm run build && npx cap sync android && cd android && gradlew.bat assembleRelease",
-    "build:android:aab:release": "npm run build && npx cap sync android && cd android && gradlew.bat bundleRelease",
+    "build:android": "npm run build && npx cap sync android && npm run android:sync:reminder-audio && cd android && gradlew.bat assembleDebug",
+    "build:android:release": "npm run build && npx cap sync android && npm run android:sync:reminder-audio && cd android && gradlew.bat assembleRelease bundleRelease",
+    "build:android:release:signed": "npm run build && npx cap sync android && npm run android:sync:reminder-audio && cd android && gradlew.bat clean assembleRelease bundleRelease",
+    "build:android:apk:release": "npm run build && npx cap sync android && npm run android:sync:reminder-audio && cd android && gradlew.bat assembleRelease",
+    "build:android:aab:release": "npm run build && npx cap sync android && npm run android:sync:reminder-audio && cd android && gradlew.bat bundleRelease",
     "dist": "npm run build && electron-builder",
     "build:win": "npm run build && electron-builder --win --x64",
     "build:linux": "npm run build && electron-builder --linux",
@@ -61,8 +62,10 @@
     "vitest": "^4.1.2"
   },
   "dependencies": {
+    "@capacitor-community/text-to-speech": "^6.1.0",
     "@capacitor/android": "^7.4.3",
     "@capacitor/core": "^7.4.3",
+    "@capacitor/local-notifications": "^7.0.2",
     "@elevenlabs/elevenlabs-js": "^2.42.0",
     "better-sqlite3": "^10.0.0",
     "dotenv": "^16.6.1"

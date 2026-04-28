@@ -22,13 +22,15 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace "com.algoritmia.agenda"
     compileSdk libs.versions.compileSdk.get().toInteger()
+    def appVersionName = "1.3.6"
+    def appVersionCode = 10306
     
     defaultConfig {
         applicationId "com.algoritmia.agenda"
         minSdkVersion libs.versions.minSdk.get().toInteger()
         targetSdkVersion libs.versions.targetSdk.get().toInteger()
-        versionCode 1
-        versionName "1.0"
+    versionCode appVersionCode
+    versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         
         aaptOptions {

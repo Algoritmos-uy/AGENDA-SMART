@@ -29,6 +29,9 @@ const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
 const OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE || 'shimmer';
 const GOOGLE_STT_URL = process.env.GOOGLE_STT_API_URL || 'https://speech.googleapis.com/v1/speech:recognize';
 const GOOGLE_TTS_URL = process.env.GOOGLE_TTS_API_URL || 'https://texttospeech.googleapis.com/v1/text:synthesize';
+const GEMINI_API_URL = process.env.GEMINI_API_URL || 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.1-flash-tts-preview';
+const GEMINI_TTS_VOICE = process.env.GEMINI_TTS_VOICE || 'Kore';
 
 function joinUrl(base = '', suffix = '') {
   const b = String(base || '').trim().replace(/\/+$/, '');
@@ -140,8 +143,20 @@ function normalizeTtsProvider(value = '') {
   if (raw === '11labs') return 'elevenlabs';
   if (['openai', 'gpt-4o-mini-tts', 'gpt4o-mini-tts'].includes(raw)) return 'openai';
   if (['google', 'google-speech', 'google speech'].includes(raw)) return 'google';
+  if (['gemini', 'gemini-tts', 'gemini-3.1-flash-tts-preview', 'gemini flash tts'].includes(raw)) return 'gemini';
   if (raw === 'auto' || raw === 'elevenlabs') return raw;
   return 'auto';
+}
+
+function resolveGeminiTtsUrl(apiUrl = '', model = '') {
+  const selectedModel = String(model || GEMINI_TTS_MODEL).trim() || GEMINI_TTS_MODEL;
+  const raw = String(apiUrl || '').trim();
+  if (!raw) {
+    return `${GEMINI_API_URL}/models/${encodeURIComponent(selectedModel)}:generateContent`;
+  }
+  if (/:generateContent(?:\?|$)/i.test(raw)) return raw;
+  if (/\/models\//i.test(raw)) return `${raw.replace(/\/+$/, '')}:generateContent`;
+  return `${raw.replace(/\/+$/, '')}/models/${encodeURIComponent(selectedModel)}:generateContent`;
 }
 
 function isTtsProviderAvailable(provider = 'auto', options = {}) {
@@ -154,23 +169,31 @@ function isTtsProviderAvailable(provider = 'auto', options = {}) {
   if (provider === 'google') {
     return !!String(options.googleApiKey || process.env.GOOGLE_SPEECH_API_KEY || process.env.GOOGLE_API_KEY || '').trim() && !!GOOGLE_TTS_URL;
   }
+  if (provider === 'gemini') {
+    return !!String(options.geminiApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim() && !!resolveGeminiTtsUrl(process.env.GEMINI_TTS_API_URL, process.env.GEMINI_TTS_MODEL);
+  }
   return false;
 }
 
-function resolveTtsProviders({ provider } = {}) {
+function resolveTtsProviders({ provider, apiKey } = {}) {
   const selected = normalizeTtsProvider(provider || process.env.VOICE_PROVIDER || 'auto');
-  const defaultOrder = ['elevenlabs', 'openai', 'google'];
+  const directKey = String(apiKey || '').trim();
+  const defaultOrder = ['elevenlabs', 'openai', 'google', 'gemini'];
   const ordered = selected === 'auto'
     ? defaultOrder
     : [selected, ...defaultOrder.filter((p) => p !== selected)];
 
-  const available = ordered.filter((p) => isTtsProviderAvailable(p, {
+  const available = ordered.filter((p) => {
+    if (selected !== 'auto' && p === selected && directKey) return true;
+    return isTtsProviderAvailable(p, {
     elevenlabsApiKey: process.env.ELEVENLABS_API_KEY,
     openaiApiKey: process.env.OPENAI_API_KEY,
     googleApiKey: process.env.GOOGLE_SPEECH_API_KEY || process.env.GOOGLE_API_KEY,
-  }));
+    geminiApiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
+    });
+  });
   if (!available.length) {
-    const err = new Error('Falta API key para síntesis de voz (ELEVENLABS_API_KEY, OPENAI_API_KEY o GOOGLE_SPEECH_API_KEY)');
+  const err = new Error('Falta API key para síntesis de voz (ELEVENLABS_API_KEY, OPENAI_API_KEY, GOOGLE_SPEECH_API_KEY o GEMINI_API_KEY)');
     err.code = 'NO_TTS_API_KEY';
     throw err;
   }
@@ -423,15 +446,21 @@ async function transcribeAudio(payload = {}, options = {}) {
 }
 
 function decodeAudioFromJson(data = {}) {
+  const directPart = data?.candidates?.[0]?.content?.parts?.find((part) => part?.inlineData?.data || part?.inline_data?.data);
+  const inlineData = directPart?.inlineData || directPart?.inline_data || {};
   const audioBase64 = data?.audio_base64
     || data?.audioBase64
     || data?.audio
     || data?.data?.audio
     || data?.result?.audio
+    || inlineData?.data
+    || data?.audioContent
     || '';
   const mimeType = data?.mime_type
     || data?.mimeType
     || data?.format
+    || inlineData?.mimeType
+    || inlineData?.mime_type
     || 'audio/mpeg';
 
   if (!audioBase64) return null;
@@ -458,6 +487,12 @@ async function synthesizeSpeech(payload = {}, options = {}) {
     try {
       let res;
       if (provider === 'elevenlabs') {
+        const elevenlabsKey = String(options.apiKey || process.env.ELEVENLABS_API_KEY || '').trim();
+        if (!elevenlabsKey) {
+          const err = new Error('Falta ELEVENLABS_API_KEY para TTS');
+          err.code = 'NO_TTS_API_KEY';
+          throw err;
+        }
         const voiceId = voice || ELEVENLABS_DEFAULT_VOICE;
         const outputFormat = format === 'mp3' ? ELEVENLABS_DEFAULT_OUTPUT : format;
         const endpoint = `${joinUrl(ELEVENLABS_TTS_URL, `/${voiceId}`)}?output_format=${encodeURIComponent(outputFormat)}`;
@@ -470,7 +505,7 @@ async function synthesizeSpeech(payload = {}, options = {}) {
           headers: {
             'Content-Type': 'application/json',
             Accept: 'audio/mpeg',
-            'xi-api-key': process.env.ELEVENLABS_API_KEY,
+            'xi-api-key': elevenlabsKey,
           },
           body: JSON.stringify(body),
         });
@@ -518,6 +553,36 @@ async function synthesizeSpeech(payload = {}, options = {}) {
             },
             audioConfig: {
               audioEncoding: 'MP3',
+            },
+          }),
+        });
+      } else if (provider === 'gemini') {
+        const apiKey = String(options.apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
+        if (!apiKey) {
+          const err = new Error('Falta GEMINI_API_KEY para TTS');
+          err.code = 'NO_TTS_API_KEY';
+          throw err;
+        }
+        const model = String(options.model || GEMINI_TTS_MODEL).trim() || GEMINI_TTS_MODEL;
+        const voiceName = String(voice || options.voice || GEMINI_TTS_VOICE).trim() || GEMINI_TTS_VOICE;
+        const endpointBase = resolveGeminiTtsUrl(String(options.apiUrl || process.env.GEMINI_TTS_API_URL || '').trim(), model);
+        const endpoint = `${endpointBase}${endpointBase.includes('?') ? '&' : '?'}key=${encodeURIComponent(apiKey)}`;
+        res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: cleanText }] }],
+            generationConfig: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: {
+                    voiceName,
+                  },
+                },
+              },
             },
           }),
         });

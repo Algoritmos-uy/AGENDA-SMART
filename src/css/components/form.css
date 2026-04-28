@@ -59,8 +59,41 @@ textarea:focus {
     align-items: center;
 }
 
+.reminder-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.reminder-option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-1);
+    background: var(--color-surface);
+    cursor: pointer;
+    font-weight: normal;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.reminder-option:has(input:checked) {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+}
+
+.reminder-option input {
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--color-primary);
+}
+
 .reminder-custom-wrapper {
     display: none;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-1);
 }
 
 .status {

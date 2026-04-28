@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('appBridge', {
   ping: () => 'pong',
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
   getLocale: () => ipcRenderer.invoke('app:getLocale'),
+  getTtsDefaults: () => ipcRenderer.invoke('app:getTtsDefaults'),
   getAutoStartStatus: () => ipcRenderer.invoke('app:getAutoStartStatus'),
   setAutoStartEnabled: (enabled) => ipcRenderer.invoke('app:setAutoStartEnabled', enabled),
   chat: (payload) => ipcRenderer.invoke('assistant:chat', payload),

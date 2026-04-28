@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildCreateEventFromAction,
+  composeEventCreatedMessage,
   detectAssistantRange,
   extractAssistantAction,
+  getEventAttendanceById,
   normalizeReminderOffset,
+  normalizeEventList,
+  normalizeEventRecord,
   inferEndFromStart,
   normalizeAttendanceStatus,
   eventsOverlap,
@@ -41,6 +46,32 @@ describe('assistantEventUtils', () => {
     expect(normalizeAttendanceStatus('desconocido', '')).toBe('');
   });
 
+  it('normaliza un registro de evento para reminder y attendance', () => {
+    const record = normalizeEventRecord({
+      id: 'e1',
+      title: 'Demo',
+      reminder_offset: 120,
+      attendance: 'confirmado',
+    });
+
+    expect(record.reminder_offsets).toEqual([120]);
+    expect(record.reminder_offset).toBe(120);
+    expect(record.attendance).toBe('confirmed');
+  });
+
+  it('normaliza listas de eventos y busca asistencia por id', () => {
+    const list = normalizeEventList([
+      { id: 'a', attendance: 'pendiente', reminder_offsets: [900] },
+      { id: 'b', attendance: 'no', reminder_offset: 300 },
+    ]);
+
+    expect(list).toHaveLength(2);
+    expect(list[0].attendance).toBe('pending');
+    expect(list[1].attendance).toBe('declined');
+    expect(getEventAttendanceById(list, 'b')).toBe('declined');
+    expect(getEventAttendanceById(list, 'x')).toBe('pending');
+  });
+
   it('autocompleta hora fin (+60 min) y limita a 23:59', () => {
     expect(inferEndFromStart('09:30')).toBe('10:30');
     expect(inferEndFromStart('23:40')).toBe('23:59');
@@ -55,10 +86,10 @@ describe('assistantEventUtils', () => {
       end: '10:00',
       description: 'Plan',
       color: '#2563eb',
-      reminder_offset: 900,
+      reminder_offsets: [900],
     });
     expect(ok.ok).toBe(true);
-    expect(ok.data.reminder_offset).toBe(900);
+    expect(ok.data.reminder_offsets).toEqual([900]);
 
     const bad = validateEventPayload({
       title: '',
@@ -94,13 +125,41 @@ describe('assistantEventUtils', () => {
       end: '12:00',
       description: '',
       color: '#111111',
-      reminder_offset: '300',
+      reminder_offsets: [300],
     });
 
     expect(event.id).toBeTypeOf('string');
     expect(event.title).toBe('Sprint');
-    expect(event.reminder_offset).toBe(300);
+    expect(event.reminder_offsets).toEqual([300]);
     expect(event.attendance).toBe('pending');
+  });
+
+  it('buildCreateEventFromAction valida y construye evento en un solo paso', () => {
+    const built = buildCreateEventFromAction({
+      title: 'Planning',
+      date: '2026-04-11',
+      start: '10:00',
+      duration_minutes: 90,
+      attendance: 'confirmado',
+    }, 'es');
+
+    expect(built.ok).toBe(true);
+    expect(built.event.title).toBe('Planning');
+    expect(built.event.end).toBe('11:30');
+    expect(built.event.attendance).toBe('pending');
+    expect(built.data.autoCompletedEnd).toBe(true);
+  });
+
+  it('buildCreateEventFromAction devuelve error cuando el payload es inválido', () => {
+    const built = buildCreateEventFromAction({
+      title: '',
+      date: '04-11-2026',
+      start: '10:00',
+      end: '09:00',
+    }, 'es');
+
+    expect(built.ok).toBe(false);
+    expect(String(built.error || '')).toContain('Falta título.');
   });
 
   it('convierte attendance al crear payload de evento', () => {
@@ -219,5 +278,25 @@ describe('assistantEventUtils', () => {
     expect(slots.length).toBeGreaterThan(0);
     expect(slots[0].date).toBe('2026-04-20');
     expect(slots[0].start >= '12:00').toBe(true);
+  });
+
+  it('compone mensaje final de creación agregando autoEnd cuando corresponde', () => {
+    const msg = composeEventCreatedMessage('Evento creado', {
+      autoCompletedEnd: true,
+      end: '11:30',
+      autoDurationMinutes: 90,
+      resolveAutoEndText: ({ end, minutes }) => `Fin auto: ${end} (${minutes} min)`,
+    });
+
+    expect(msg).toBe('Evento creado\nFin auto: 11:30 (90 min)');
+  });
+
+  it('mantiene mensaje base si no hay autoEnd o el texto auto está vacío', () => {
+    expect(composeEventCreatedMessage('Evento creado', { autoCompletedEnd: false })).toBe('Evento creado');
+
+    expect(composeEventCreatedMessage('Evento creado', {
+      autoCompletedEnd: true,
+      resolveAutoEndText: () => '   ',
+    })).toBe('Evento creado');
   });
 });

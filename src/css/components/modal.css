@@ -34,12 +34,22 @@
     overflow: hidden;
 }
 
-.modal__header,
-.modal__footer {
+.modal__header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
+}
+
+.modal__footer {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+}
+
+.modal__footer .btn {
+    width: 100%;
+    min-width: 0;
 }
 
 .modal__title-group {
@@ -211,6 +221,10 @@
     .assistant-form__buttons {
         width: 100%;
         justify-content: flex-start;
+    }
+
+    .modal__footer {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 

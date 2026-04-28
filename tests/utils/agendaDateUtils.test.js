@@ -15,6 +15,7 @@ describe('agendaDateUtils', () => {
     const parsed = parseLocalDate('2026-04-02');
     expect(parsed).toBeInstanceOf(Date);
     expect(formatISODate(parsed)).toBe('2026-04-02');
+    expect(parseLocalDate('')).toBeNull();
   });
 
   it('calcula correctamente el inicio de semana (lunes)', () => {

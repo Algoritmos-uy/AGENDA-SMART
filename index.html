@@ -71,19 +71,32 @@
                         <label class="control" for="description" data-i18n="form.fieldDescription">Descripción</label>
                         <textarea id="description" name="description" rows="3" placeholder="Notas u objetivos del evento" data-i18n-placeholder="form.placeholderDescription"></textarea>
                     </div>
-                    <div class="form__row form__row--inline">
-                        <label class="control" for="reminder" data-i18n="form.fieldReminder">Recordatorio</label>
-                        <select id="reminder" name="reminder" aria-label="Tiempo de recordatorio" data-i18n-aria-label="form.reminderAria">
-                            <option value="5" data-i18n="form.reminder5">5 minutos antes</option>
-                            <option value="10" selected data-i18n="form.reminder10">10 minutos antes</option>
-                            <option value="15" data-i18n="form.reminder15">15 minutos antes</option>
-                            <option value="30" data-i18n="form.reminder30">30 minutos antes</option>
-                            <option value="60" data-i18n="form.reminder60">60 minutos antes</option>
-                            <option value="custom" data-i18n="form.reminderCustom">Personalizado</option>
-                        </select>
-
-                        <div id="reminder-custom-wrapper" class="control reminder-custom-wrapper">
-                            <label class="control" for="reminder-custom" data-i18n="form.customMinutes">Minutos personalizados</label>
+                    <div class="form__row">
+                        <span class="control" data-i18n="form.fieldReminder">Recordatorio</span>
+                        <div id="reminder-options" class="reminder-options" role="group" aria-label="Recordatorios">
+                            <label class="reminder-option">
+                                <input type="checkbox" name="reminder-opt" value="900">
+                                <span>15 min</span>
+                            </label>
+                            <label class="reminder-option">
+                                <input type="checkbox" name="reminder-opt" value="1800" checked>
+                                <span>30 min</span>
+                            </label>
+                            <label class="reminder-option">
+                                <input type="checkbox" name="reminder-opt" value="2700">
+                                <span>45 min</span>
+                            </label>
+                            <label class="reminder-option">
+                                <input type="checkbox" name="reminder-opt" value="3600">
+                                <span>60 min</span>
+                            </label>
+                            <label class="reminder-option">
+                                <input type="radio" id="reminder-custom-radio" name="reminder-mode">
+                                <span data-i18n="form.reminderCustom">Personalizado</span>
+                            </label>
+                        </div>
+                        <div id="reminder-custom-wrapper" class="reminder-custom-wrapper">
+                            <label class="control" for="reminder-custom" data-i18n="form.customMinutes">Minutos</label>
                             <input
                                 type="number"
                                 id="reminder-custom"
@@ -190,13 +203,13 @@
                                 </label>
                                 <button class="btn btn--ghost" id="assistant-voice" type="button" title="Activar micrófono" data-i18n-title="assistant.voiceTitle" data-i18n="assistant.voiceButton">🎤 Hablar</button>
                                 <button class="btn btn--ghost" id="assistant-clear" type="button" data-i18n="assistant.clear">Vaciar chat</button>
-                                <button class="btn btn--primary" id="assistant-send" type="submit" data-i18n="assistant.send">Enviar</button>
                             </div>
                         </div>
                     </form>
                 </div>
             </div>
             <footer class="modal__footer">
+                <button class="btn btn--primary" id="assistant-send" type="submit" form="assistant-form" data-i18n="assistant.send">Enviar</button>
                 <button class="btn btn--primary" id="assistant-close-footer" type="button" data-i18n="assistant.close">Cerrar</button>
             </footer>
         </div>

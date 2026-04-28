@@ -131,6 +131,10 @@ ipcMain.handle('app:getLocale', () => {
 });
 ipcMain.handle('app:getAutoStartStatus', () => getAutoStartStatus());
 ipcMain.handle('app:setAutoStartEnabled', (_event, enabled) => setAutoStartEnabled(Boolean(enabled)));
+ipcMain.handle('app:getTtsDefaults', () => ({
+  maleVoice: String(process.env.ELEVENLABS_TTS_VOICE_MALE || '').trim(),
+  femaleVoice: String(process.env.ELEVENLABS_TTS_VOICE_FEMALE || '').trim(),
+}));
 ipcMain.handle('assistant:chat', async (_event, payload = {}) => {
   const { messages = [], provider, retry = false } = payload;
   return callAssistant(messages, { provider, retry });

@@ -23,7 +23,9 @@ Agenda Inteligente permite:
 Variables comunes:
 
 - `DEEPSEEK_API_KEY` para chat de CoordinalIA con DeepSeek.
-- `OPENAI_API_KEY` para transcripción de voz avanzada (fallback STT).
+- `ELEVENLABS_API_KEY` para voz (TTS) y STT con ElevenLabs.
+- `OPENAI_API_KEY` para `gpt-4o-mini-transcribe` (STT) y TTS OpenAI.
+- `GOOGLE_SPEECH_API_KEY` (o `GOOGLE_API_KEY`) para Google Speech (STT/TTS).
 
 ---
 
@@ -106,20 +108,66 @@ Mejora v1.3.6:
 ### Voz a texto
 
 - Botón `🎤 Hablar` para dictado.
-- Reconocimiento principal con Web Speech API.
-- Si hay problemas de red del reconocimiento, cambia a modo grabación + transcripción backend (requiere `OPENAI_API_KEY`).
+- Soporta reconocimiento local del navegador (**browser**) y modo grabación con proveedor remoto (**elevenlabs / openai / google**).
 - Flujo UX mejorado: “Preparando envío...” antes del envío automático del mensaje de voz.
 
----
+### SELECCIÓN DE VOZ (TTS) y STT por comandos
 
-## Inicio automático con el sistema
+Puedes configurar proveedor y API keys directamente desde el chat de CoordinalIA.
 
-En escritorio, puedes activar **Iniciar con el sistema** desde la cabecera.
+#### 1) Seleccionar proveedor de STT
 
-- Si el sistema operativo lo soporta, la app puede iniciar en segundo plano al loguearte.
-- Si no lo soporta, el control aparece deshabilitado.
+- `/sttprovider browser`
+- `/sttprovider elevenlabs`
+- `/sttprovider openai`
+- `/sttprovider google`
 
----
+#### 2) Configurar API key para STT
+
+- `/sttkey TU_CLAVE`  
+  (usa el proveedor STT actualmente seleccionado)
+- `/sttkey elevenlabs TU_CLAVE`
+- `/sttkey openai TU_CLAVE`
+- `/sttkey google TU_CLAVE`
+
+#### 3) Seleccionar proveedor de TTS (voz)
+
+- `/ttsprovider auto`
+- `/ttsprovider elevenlabs`
+- `/ttsprovider openai`
+- `/ttsprovider google`
+- `/ttsprovider gemini`
+
+#### 4) Configurar API key para TTS
+
+- `/ttskey TU_CLAVE`  
+  (usa el proveedor TTS actualmente seleccionado)
+- `/ttskey elevenlabs TU_CLAVE`
+- `/ttskey openai TU_CLAVE`
+- `/ttskey google TU_CLAVE`
+- `/ttskey gemini TU_CLAVE`
+
+#### 5) Selección de voz femenina
+
+- `/ttsfemale` (activa voz femenina por defecto)
+- `/ttsvoice VOICE_ID` (define voice id específico para proveedor compatible)
+
+#### Combinaciones recomendadas
+
+- **Máxima simplicidad (sin APIs externas):**
+  - `/sttprovider browser`
+  - `/ttsprovider auto`
+- **OpenAI STT de alta precisión:**
+  - `/sttprovider openai`
+  - `/sttkey openai TU_CLAVE_OPENAI`
+- **Google Speech STT/TTS:**
+  - `/sttprovider google`
+  - `/sttkey google TU_CLAVE_GOOGLE`
+  - `/ttsprovider google`
+  - `/ttskey google TU_CLAVE_GOOGLE`
+- **Gemini TTS (preview):**
+  - `/ttsprovider gemini`
+  - `/ttskey gemini TU_CLAVE_GEMINI`
 
 ## Tema y experiencia de uso
 
@@ -139,17 +187,10 @@ En escritorio, puedes activar **Iniciar con el sistema** desde la cabecera.
 ### Voz no transcribe
 
 - Revisa permisos de micrófono.
-- Si aparece error STT (`401/402`), valida plan/saldo y `OPENAI_API_KEY`.
+- Verifica proveedor STT activo (`/sttprovider ...`) y su API key (`/sttkey ...`).
+- Si aparece error STT (`401/402`), valida plan/saldo del proveedor y su clave correspondiente.
 
 ### No sonó alerta 30 min
 
 - Confirma que el evento se creó con suficiente anticipación (si faltan menos de 30 min, esa ventana ya no se agenda).
 - Verifica existencia de archivos de audio de 30 min.
-
----
-
-## Recomendaciones
-
-- Mantén la app abierta para garantizar disparo de alertas locales.
-- Usa colores y descripciones para mejorar legibilidad.
-- Si usas voz, prueba primero una frase corta para validar permisos y dispositivo de entrada.

@@ -72,6 +72,37 @@ export function normalizeReminderOffset(value) {
     return 600;
 }
 
+export function normalizeReminderOffsets(value) {
+    const DEFAULT = [1800];
+    if (Array.isArray(value)) {
+        const parsed = value.map(Number).filter(v => Number.isFinite(v) && v > 0);
+        return parsed.length > 0 ? parsed : DEFAULT;
+    }
+    const num = Number(value);
+    if (Number.isFinite(num) && num > 0) return [num];
+    return DEFAULT;
+}
+
+export function normalizeEventRecord(ev = {}) {
+    const reminder_offsets = normalizeReminderOffsets(ev.reminder_offsets ?? ev.reminder_offset);
+    return {
+        ...ev,
+        reminder_offsets,
+        reminder_offset: reminder_offsets[0],
+        attendance: normalizeAttendanceStatus(ev.attendance)
+    };
+}
+
+export function normalizeEventList(list = []) {
+    return Array.isArray(list) ? list.map(normalizeEventRecord) : [];
+}
+
+export function getEventAttendanceById(events = [], id = '', fallback = 'pending') {
+    if (!id) return fallback;
+    const current = (Array.isArray(events) ? events : []).find(e => String(e?.id) === String(id));
+    return normalizeAttendanceStatus(current?.attendance, fallback);
+}
+
 function toMinutes(time = '') {
     const [h, m] = String(time).split(':').map(Number);
     if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
@@ -264,15 +295,15 @@ export function validateEventPayload(obj = {}, locale = 'es') {
         return { ok: false, error: errors.join(' ') };
     }
 
-    const reminder_offset = normalizeReminderOffset(obj.reminder_offset);
+    const reminder_offsets = normalizeReminderOffsets(obj.reminder_offsets ?? obj.reminder_offset);
     return {
         ok: true,
-        data: { title, date, start, end, description, color, reminder_offset, autoCompletedEnd, autoDurationMinutes: durationMinutes }
+        data: { title, date, start, end, description, color, reminder_offsets, autoCompletedEnd, autoDurationMinutes: durationMinutes }
     };
 }
 
 export function toEventPayload(data) {
-    const reminder_offset = normalizeReminderOffset(data.reminder_offset);
+    const reminder_offsets = normalizeReminderOffsets(data.reminder_offsets ?? data.reminder_offset);
     return {
         id: generateId(),
         title: data.title,
@@ -281,7 +312,38 @@ export function toEventPayload(data) {
         end: data.end,
         description: data.description || '',
         color: data.color || '#2563eb',
-        reminder_offset,
+        reminder_offsets,
         attendance: normalizeAttendanceStatus(data.attendance)
     };
+}
+
+export function buildCreateEventFromAction(action = {}, locale = 'es') {
+    const validation = validateEventPayload(action, locale);
+    if (!validation.ok) {
+        return { ok: false, error: validation.error };
+    }
+
+    return {
+        ok: true,
+        event: toEventPayload(validation.data),
+        data: validation.data,
+    };
+}
+
+export function composeEventCreatedMessage(confirmText = '', options = {}) {
+    const base = String(confirmText || '');
+    const autoCompletedEnd = Boolean(options.autoCompletedEnd);
+    if (!autoCompletedEnd) return base;
+
+    const resolveAutoEndText = typeof options.resolveAutoEndText === 'function'
+        ? options.resolveAutoEndText
+        : () => String(options.autoEndText || '');
+
+    const autoText = String(resolveAutoEndText({
+        end: options.end || '',
+        minutes: Number(options.autoDurationMinutes) || 60,
+    }) || '').trim();
+
+    if (!autoText) return base;
+    return `${base}\n${autoText}`;
 }
