@@ -1,12 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildCreateEventFromAction,
-  composeEventCreatedMessage,
   detectAssistantRange,
   extractAssistantAction,
   getEventAttendanceById,
-  normalizeReminderOffset,
-  normalizeEventList,
   normalizeEventRecord,
   inferEndFromStart,
   normalizeAttendanceStatus,
@@ -31,13 +27,6 @@ describe('assistantEventUtils', () => {
     expect(extractAssistantAction('sin json')).toBeNull();
   });
 
-  it('normaliza reminder_offset con fallback', () => {
-    expect(normalizeReminderOffset(300)).toBe(300);
-    expect(normalizeReminderOffset('120')).toBe(120);
-    expect(normalizeReminderOffset(-1)).toBe(600);
-    expect(normalizeReminderOffset('abc')).toBe(600);
-  });
-
   it('normaliza estados de asistencia (RSVP) con sinónimos', () => {
     expect(normalizeAttendanceStatus('confirmado')).toBe('confirmed');
     expect(normalizeAttendanceStatus('No')).toBe('declined');
@@ -59,11 +48,11 @@ describe('assistantEventUtils', () => {
     expect(record.attendance).toBe('confirmed');
   });
 
-  it('normaliza listas de eventos y busca asistencia por id', () => {
-    const list = normalizeEventList([
+  it('normaliza asistencia por id sobre eventos persistidos', () => {
+    const list = [
       { id: 'a', attendance: 'pendiente', reminder_offsets: [900] },
       { id: 'b', attendance: 'no', reminder_offset: 300 },
-    ]);
+    ].map(normalizeEventRecord);
 
     expect(list).toHaveLength(2);
     expect(list[0].attendance).toBe('pending');
@@ -132,34 +121,6 @@ describe('assistantEventUtils', () => {
     expect(event.title).toBe('Sprint');
     expect(event.reminder_offsets).toEqual([300]);
     expect(event.attendance).toBe('pending');
-  });
-
-  it('buildCreateEventFromAction valida y construye evento en un solo paso', () => {
-    const built = buildCreateEventFromAction({
-      title: 'Planning',
-      date: '2026-04-11',
-      start: '10:00',
-      duration_minutes: 90,
-      attendance: 'confirmado',
-    }, 'es');
-
-    expect(built.ok).toBe(true);
-    expect(built.event.title).toBe('Planning');
-    expect(built.event.end).toBe('11:30');
-    expect(built.event.attendance).toBe('pending');
-    expect(built.data.autoCompletedEnd).toBe(true);
-  });
-
-  it('buildCreateEventFromAction devuelve error cuando el payload es inválido', () => {
-    const built = buildCreateEventFromAction({
-      title: '',
-      date: '04-11-2026',
-      start: '10:00',
-      end: '09:00',
-    }, 'es');
-
-    expect(built.ok).toBe(false);
-    expect(String(built.error || '')).toContain('Falta título.');
   });
 
   it('convierte attendance al crear payload de evento', () => {
@@ -280,23 +241,4 @@ describe('assistantEventUtils', () => {
     expect(slots[0].start >= '12:00').toBe(true);
   });
 
-  it('compone mensaje final de creación agregando autoEnd cuando corresponde', () => {
-    const msg = composeEventCreatedMessage('Evento creado', {
-      autoCompletedEnd: true,
-      end: '11:30',
-      autoDurationMinutes: 90,
-      resolveAutoEndText: ({ end, minutes }) => `Fin auto: ${end} (${minutes} min)`,
-    });
-
-    expect(msg).toBe('Evento creado\nFin auto: 11:30 (90 min)');
-  });
-
-  it('mantiene mensaje base si no hay autoEnd o el texto auto está vacío', () => {
-    expect(composeEventCreatedMessage('Evento creado', { autoCompletedEnd: false })).toBe('Evento creado');
-
-    expect(composeEventCreatedMessage('Evento creado', {
-      autoCompletedEnd: true,
-      resolveAutoEndText: () => '   ',
-    })).toBe('Evento creado');
-  });
 });

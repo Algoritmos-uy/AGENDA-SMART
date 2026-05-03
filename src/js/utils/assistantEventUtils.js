@@ -66,12 +66,6 @@ export function extractAssistantAction(content = '') {
     }
 }
 
-export function normalizeReminderOffset(value) {
-    const num = Number(value);
-    if (Number.isFinite(num) && num >= 0) return num;
-    return 600;
-}
-
 export function normalizeReminderOffsets(value) {
     const DEFAULT = [1800];
     if (Array.isArray(value)) {
@@ -91,10 +85,6 @@ export function normalizeEventRecord(ev = {}) {
         reminder_offset: reminder_offsets[0],
         attendance: normalizeAttendanceStatus(ev.attendance)
     };
-}
-
-export function normalizeEventList(list = []) {
-    return Array.isArray(list) ? list.map(normalizeEventRecord) : [];
 }
 
 export function getEventAttendanceById(events = [], id = '', fallback = 'pending') {
@@ -315,35 +305,4 @@ export function toEventPayload(data) {
         reminder_offsets,
         attendance: normalizeAttendanceStatus(data.attendance)
     };
-}
-
-export function buildCreateEventFromAction(action = {}, locale = 'es') {
-    const validation = validateEventPayload(action, locale);
-    if (!validation.ok) {
-        return { ok: false, error: validation.error };
-    }
-
-    return {
-        ok: true,
-        event: toEventPayload(validation.data),
-        data: validation.data,
-    };
-}
-
-export function composeEventCreatedMessage(confirmText = '', options = {}) {
-    const base = String(confirmText || '');
-    const autoCompletedEnd = Boolean(options.autoCompletedEnd);
-    if (!autoCompletedEnd) return base;
-
-    const resolveAutoEndText = typeof options.resolveAutoEndText === 'function'
-        ? options.resolveAutoEndText
-        : () => String(options.autoEndText || '');
-
-    const autoText = String(resolveAutoEndText({
-        end: options.end || '',
-        minutes: Number(options.autoDurationMinutes) || 60,
-    }) || '').trim();
-
-    if (!autoText) return base;
-    return `${base}\n${autoText}`;
 }

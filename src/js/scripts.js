@@ -17,7 +17,9 @@ import {
     findEventConflicts,
     extractAssistantAction,
     inferEndFromStart,
+    getEventAttendanceById,
     normalizeAttendanceStatus,
+    normalizeEventRecord as normalizeStoredEventRecord,
     suggestRescheduleSlots,
     toEventPayload,
     validateEventPayload
@@ -57,11 +59,12 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     const descInput = document.getElementById('description');
     const colorInput = document.getElementById('color');
     const eventIdInput = document.getElementById('event-id');
-    const reminderSelect = document.getElementById('reminder');
+    const reminderOptionInputs = Array.from(document.querySelectorAll('input[name="reminder-opt"]'));
+    const reminderCustomRadio = document.getElementById('reminder-custom-radio');
     const reminderCustomInput = document.getElementById('reminder-custom');
     const reminderCustomWrapper = document.getElementById('reminder-custom-wrapper');
 
-    const DEFAULT_REMINDER_MINUTES = 10;
+    const DEFAULT_REMINDER_MINUTES = 30;
 
     const viewButtons = Array.from(document.querySelectorAll('[data-target]'));
     const views = document.querySelectorAll('.agenda-view');
@@ -197,6 +200,11 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     let assistantTtsEnabled = true;
     let assistantTtsProvider = 'auto';
     let assistantVoiceMode = 'recognition';
+    let appInitialized = false;
+    let initInFlight = false;
+    let assistantModalBound = false;
+    let lifecycleBound = false;
+    let clockIntervalId = null;
     const ASSISTANT_VOICE_MAX_RETRIES = 2;
     const ASSISTANT_VOICE_ONEND_MAX_RETRIES = 1;
     const ASSISTANT_VOICE_SILENCE_SUBMIT_MS = 2400;
@@ -523,45 +531,91 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         return ASSISTANT_PROVIDERS[prov]?.label || 'DeepSeek';
     }
 
-    document.addEventListener('DOMContentLoaded', init);
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init, { once: true });
+    } else {
+        void init();
+    }
 
     // Configuración inicial: valores por defecto, listeners y primer render.
     async function init() {
-        const today = new Date();
-        baseDateInput.value = formatISODate(today);
-        dateInput.value = formatISODate(today);
-        startInput.value = '09:00';
-        endInput.value = '10:00';
-    setReminderDefault();
+        if (initInFlight) return;
+        initInFlight = true;
+        try {
+            if (!baseDateInput || !dateInput || !startInput || !endInput || !form) {
+                console.error('Init incompleto: faltan elementos críticos del DOM.');
+                return;
+            }
 
-    await hydrateAssistantLocale();
-    applyI18n();
+            const today = new Date();
+            if (!baseDateInput.value) baseDateInput.value = formatISODate(today);
+            if (!dateInput.value) dateInput.value = formatISODate(today);
+            if (!startInput.value) startInput.value = '09:00';
+            if (!endInput.value) endInput.value = '10:00';
+            setReminderDefault();
 
-        startClock();
-        try { await notifier.init(); } catch (e) { console.warn('Notifier init failed', e); }
-        notifier.setLocale?.(assistantLocale);
+            await hydrateAssistantLocale();
+            applyI18n();
 
-    await loadEventsFromStore();
-    renderAll();
-    try { notifier.rescheduleAll(getEvents()); } catch (e) { console.warn('Reschedule failed', e); }
+            startClock();
+            try { await notifier.init(); } catch (e) { console.warn('Notifier init failed', e); }
+            notifier.setLocale?.(assistantLocale);
 
-    getAssistantConfig();
-    renderAssistantProviderBtn();
-    renderAssistantTtsToggle();
-    loadAssistantHistory();
+            await loadEventsFromStore();
+            renderAll();
+            try { notifier.rescheduleAll(getEvents()); } catch (e) { console.warn('Reschedule failed', e); }
 
-        form.addEventListener('submit', handleSubmit);
-        resetBtn.addEventListener('click', resetForm);
-        viewButtons.forEach(btn => btn.addEventListener('click', handleViewSwitch));
-        baseDateInput.addEventListener('change', renderAll);
-        weeklyPrevBtn?.addEventListener('click', () => shiftBaseDateDays(-7));
-        weeklyNextBtn?.addEventListener('click', () => shiftBaseDateDays(7));
-        monthlyPrevBtn?.addEventListener('click', () => shiftBaseDateMonths(-1));
-        monthlyNextBtn?.addEventListener('click', () => shiftBaseDateMonths(1));
-    reminderSelect?.addEventListener('change', handleReminderChange);
+            getAssistantConfig();
+            renderAssistantProviderBtn();
+            renderAssistantTtsToggle();
+            loadAssistantHistory();
 
-        hydrateVersion();
-        setupAssistantModal();
+            if (!appInitialized) {
+                form.addEventListener('submit', handleSubmit);
+                resetBtn?.addEventListener('click', resetForm);
+                viewButtons.forEach(btn => btn.addEventListener('click', handleViewSwitch));
+                baseDateInput.addEventListener('change', renderAll);
+                weeklyPrevBtn?.addEventListener('click', () => shiftBaseDateDays(-7));
+                weeklyNextBtn?.addEventListener('click', () => shiftBaseDateDays(7));
+                monthlyPrevBtn?.addEventListener('click', () => shiftBaseDateMonths(-1));
+                monthlyNextBtn?.addEventListener('click', () => shiftBaseDateMonths(1));
+                reminderOptionInputs.forEach((input) => input.addEventListener('change', handleReminderChange));
+                reminderCustomRadio?.addEventListener('change', handleReminderChange);
+                reminderCustomInput?.addEventListener('input', () => {
+                    if (reminderCustomRadio?.checked) {
+                        reminderCustomWrapper.style.display = 'flex';
+                    }
+                });
+                bindLifecycleRecovery();
+            }
+
+            hydrateVersion();
+            setupAssistantModal();
+            appInitialized = true;
+        } finally {
+            initInFlight = false;
+        }
+    }
+
+    function bindLifecycleRecovery() {
+        if (lifecycleBound) return;
+        lifecycleBound = true;
+
+        const recoverUi = () => {
+            if (!baseDateInput || !dateInput) return;
+            const today = formatISODate(new Date());
+            if (!baseDateInput.value) baseDateInput.value = today;
+            if (!dateInput.value) dateInput.value = baseDateInput.value || today;
+            startClock();
+            renderAll();
+            setupAssistantModal();
+        };
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') recoverUi();
+        });
+        window.addEventListener('focus', recoverUi);
+        window.addEventListener('pageshow', recoverUi);
     }
 
     // Crear o actualizar eventos desde el formulario.
@@ -641,8 +695,8 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         const description = descInput.value.trim();
         const color = colorInput.value || '#2563eb';
         const id = eventIdInput.value || null;
-        const reminderSeconds = getReminderSecondsFromForm();
-        if (reminderSeconds === null) return null;
+    const reminderOffsets = getReminderOffsetsFromForm();
+    if (reminderOffsets === null) return null;
 
         let autoCompletedEnd = false;
         if (!end && start) {
@@ -672,7 +726,8 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             end,
             description,
             color,
-            reminder_offset: reminderSeconds,
+            reminder_offsets: reminderOffsets,
+            reminder_offset: reminderOffsets[0],
             attendance: getExistingEventAttendance(id),
             autoCompletedEnd
         };
@@ -691,16 +746,11 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     }
 
     function normalizeEventRecord(ev = {}) {
-        return {
-            ...ev,
-            attendance: normalizeAttendanceStatus(ev.attendance)
-        };
+        return normalizeStoredEventRecord(ev);
     }
 
     function getExistingEventAttendance(id = '') {
-        if (!id) return 'pending';
-        const current = getEvents().find(e => String(e.id) === String(id));
-        return normalizeAttendanceStatus(current?.attendance);
+        return getEventAttendanceById(getEvents(), id, 'pending');
     }
 
     async function loadEventsFromStore() {
@@ -1047,14 +1097,24 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         descInput.value = ev.description || '';
         colorInput.value = ev.color;
         eventIdInput.value = ev.id;
-        applyReminderToForm(ev.reminder_offset);
+        applyReminderToForm(ev.reminder_offset, ev.reminder_offsets);
         submitBtn.textContent = tr('form.update');
         setStatus(tr('form.statusEditing'), 'muted');
     }
 
-    function handleReminderChange() {
-        const value = reminderSelect.value;
-        const isCustom = value === 'custom';
+    function handleReminderChange(event) {
+        const target = event?.target;
+        if (target === reminderCustomRadio && reminderCustomRadio?.checked) {
+            reminderOptionInputs.forEach((input) => {
+                input.checked = false;
+            });
+        }
+
+        if (target?.name === 'reminder-opt' && target.checked) {
+            if (reminderCustomRadio) reminderCustomRadio.checked = false;
+        }
+
+        const isCustom = !!reminderCustomRadio?.checked;
         if (isCustom) {
             reminderCustomWrapper.style.display = 'flex';
             if (!reminderCustomInput.value) reminderCustomInput.value = '';
@@ -1066,38 +1126,62 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     }
 
     function setReminderDefault() {
-        if (!reminderSelect) return;
-        reminderSelect.value = String(DEFAULT_REMINDER_MINUTES);
+        const defaultSeconds = DEFAULT_REMINDER_MINUTES * 60;
+        reminderOptionInputs.forEach((input) => {
+            input.checked = Number(input.value) === defaultSeconds;
+        });
+        if (reminderCustomRadio) reminderCustomRadio.checked = false;
         reminderCustomInput.value = '';
         reminderCustomWrapper.style.display = 'none';
     }
 
-    function getReminderSecondsFromForm() {
-        if (!reminderSelect) return DEFAULT_REMINDER_MINUTES * 60;
-        const value = reminderSelect.value;
-        if (value === 'custom') {
+    function getReminderOffsetsFromForm() {
+        const checkedOffsets = reminderOptionInputs
+            .filter((input) => input.checked)
+            .map((input) => Number(input.value))
+            .filter((seconds) => Number.isFinite(seconds) && seconds > 0);
+
+        if (reminderCustomRadio?.checked) {
             const minutes = parseInt(reminderCustomInput.value, 10);
-            if (Number.isFinite(minutes) && minutes > 0) return minutes * 60;
+            if (Number.isFinite(minutes) && minutes > 0) return [minutes * 60];
             setStatus(tr('form.statusReminderInvalid'), 'danger');
             return null;
         }
-        const minutes = parseInt(value, 10);
-        return Number.isFinite(minutes) && minutes > 0 ? minutes * 60 : DEFAULT_REMINDER_MINUTES * 60;
+
+        if (checkedOffsets.length > 0) return checkedOffsets;
+        return [DEFAULT_REMINDER_MINUTES * 60];
     }
 
-    function applyReminderToForm(reminderOffsetSeconds) {
-        if (!reminderSelect) return;
-        const minutes = Number.isFinite(reminderOffsetSeconds) ? Math.round(reminderOffsetSeconds / 60) : DEFAULT_REMINDER_MINUTES;
-        const allowed = ['5', '10', '15', '30', '60'];
-        if (allowed.includes(String(minutes))) {
-            reminderSelect.value = String(minutes);
-            reminderCustomWrapper.style.display = 'none';
-            reminderCustomInput.value = '';
-        } else {
-            reminderSelect.value = 'custom';
-            reminderCustomWrapper.style.display = 'flex';
-            reminderCustomInput.value = minutes > 0 ? minutes : '';
+    function applyReminderToForm(reminderOffsetSeconds, reminderOffsets = []) {
+        const offsets = Array.isArray(reminderOffsets) && reminderOffsets.length > 0
+            ? reminderOffsets.map(Number)
+            : [Number(reminderOffsetSeconds)];
+        const validOffsets = offsets.filter((seconds) => Number.isFinite(seconds) && seconds > 0);
+        if (!validOffsets.length) {
+            setReminderDefault();
+            return;
         }
+
+        const presetSet = new Set(reminderOptionInputs.map((input) => Number(input.value)));
+        const presetOffsets = validOffsets.filter((seconds) => presetSet.has(seconds));
+        const customOffsets = validOffsets.filter((seconds) => !presetSet.has(seconds));
+
+        if (customOffsets.length > 0) {
+            reminderOptionInputs.forEach((input) => {
+                input.checked = false;
+            });
+            if (reminderCustomRadio) reminderCustomRadio.checked = true;
+            reminderCustomWrapper.style.display = 'flex';
+            reminderCustomInput.value = Math.round(customOffsets[0] / 60);
+            return;
+        }
+
+        reminderOptionInputs.forEach((input) => {
+            input.checked = presetOffsets.includes(Number(input.value));
+        });
+        if (reminderCustomRadio) reminderCustomRadio.checked = false;
+        reminderCustomWrapper.style.display = 'none';
+        reminderCustomInput.value = '';
     }
 
     // Helpers
@@ -1154,12 +1238,16 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
     function startClock() {
         if (!clockEl) return;
+        if (clockIntervalId) {
+            clearInterval(clockIntervalId);
+            clockIntervalId = null;
+        }
         const update = () => {
             const now = new Date();
             clockEl.textContent = now.toLocaleTimeString(getCurrentIntlLocale(), { hour12: false });
         };
         update();
-        setInterval(update, 1000);
+        clockIntervalId = setInterval(update, 1000);
     }
 
     async function hydrateVersion() {
@@ -1220,12 +1308,22 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     }
 
     function setupAssistantModal() {
-        if (!assistantModal || !assistantOpenBtn) return;
-        const closeButtons = [assistantCloseBtn, assistantCloseFooterBtn];
-        const backdrop = assistantModal.querySelector('[data-dismiss="assistant"]');
+        const modal = assistantModal || document.getElementById('assistant-modal');
+        const openBtn = assistantOpenBtn || document.getElementById('assistant-open');
+        if (!modal || !openBtn) return;
+
+        if (assistantModalBound) {
+            renderAssistantProviderBtn();
+            return;
+        }
+
+        assistantModalBound = true;
+
+        const closeButtons = [assistantCloseBtn || document.getElementById('assistant-close'), assistantCloseFooterBtn || document.getElementById('assistant-close-footer')];
+        const backdrop = modal.querySelector('[data-dismiss="assistant"]');
 
         // Botón para alternar proveedor dentro del título del modal
-        const titleGroup = assistantModal.querySelector('.modal__title-group');
+        const titleGroup = modal.querySelector('.modal__title-group');
         if (titleGroup) {
             let existing = titleGroup.querySelector('#assistant-provider');
             assistantProviderBtn = existing;
@@ -1241,12 +1339,13 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             renderAssistantProviderBtn();
         }
 
-        assistantOpenBtn.addEventListener('click', openAssistantModal);
+        openBtn.addEventListener('click', openAssistantModal);
         closeButtons.forEach(btn => btn?.addEventListener('click', closeAssistantModal));
         backdrop?.addEventListener('click', closeAssistantModal);
 
         document.addEventListener('keydown', (evt) => {
-            if (evt.key === 'Escape' && !assistantModal.classList.contains('is-hidden')) {
+            const currentModal = assistantModal || document.getElementById('assistant-modal');
+            if (evt.key === 'Escape' && currentModal && !currentModal.classList.contains('is-hidden')) {
                 closeAssistantModal();
             }
         });
@@ -1925,8 +2024,10 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     }
 
     function openAssistantModal() {
-        assistantModal.classList.remove('is-hidden');
-        assistantModal.querySelector('.modal__dialog')?.focus?.();
+        const modal = assistantModal || document.getElementById('assistant-modal');
+        if (!modal) return;
+        modal.classList.remove('is-hidden');
+        modal.querySelector('.modal__dialog')?.focus?.();
         setAssistantStatus(tr('assistant.scopeHint'));
         if (!assistantMessages.length) {
             appendAssistantMessage({
@@ -1938,14 +2039,16 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     }
 
     function closeAssistantModal() {
+        const modal = assistantModal || document.getElementById('assistant-modal');
+        const openBtn = assistantOpenBtn || document.getElementById('assistant-open');
         assistantVoiceStopRequested = true;
         clearTimeout(assistantVoiceRetryTimer);
         clearTimeout(assistantVoiceFinalizeTimer);
         assistantVoiceFinalizeTimer = null;
         stopVoiceRecorderFlow();
         if (assistantListening) assistantRecognizer?.stop?.();
-        assistantModal.classList.add('is-hidden');
-        assistantOpenBtn?.focus();
+        modal?.classList?.add('is-hidden');
+        openBtn?.focus();
     }
 
     function clearAssistantThread() {
@@ -2741,7 +2844,11 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
                 if (!androidApiKey) throw new Error('NO_API_KEY');
                 finalReply = await callAssistantAndroid(messagesForApi, { provider: cfg.provider });
             } else {
-                throw new Error(tr('assistant.mobileFallback'));
+                if (isAndroidRuntime()) {
+                    finalReply = await callAssistantAndroid(messagesForApi, { provider: cfg.provider });
+                } else {
+                    throw new Error(tr('assistant.mobileFallback'));
+                }
             }
 
             if (safetyTimer) clearTimeout(safetyTimer);
