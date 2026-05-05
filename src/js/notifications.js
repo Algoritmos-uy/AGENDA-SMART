@@ -4,11 +4,14 @@ import { t } from './utils/i18n.js';
 
 const MAX_DAYS_AHEAD = 365;         // Límite de programación futura
 const ALERT_LOOP_INTERVAL_MS = 3000;
+const ALERT_MAX_REPEATS = 3;
 const ALERT_AUTO_STOP_MS = 3 * 60 * 1000;
 const ALERT_SNOOZE_MS = 2 * 60 * 1000;
-const DEFAULT_REMINDER_OFFSETS_S = [1800]; // 30 min por defecto
+const DEFAULT_REMINDER_OFFSETS_S = [900, 1800]; // 15 y 30 min por defecto
 const ASSISTANT_CONFIG_KEY = 'coordinalia-config';
 const ASSISTANT_TTS_GENDER_KEY = 'coordinalia-tts-gender';
+const NATIVE_CHANNEL_SCHEMA_KEY = 'agenda-native-channel-schema';
+const NATIVE_CHANNEL_SCHEMA_VERSION = '2026-05-custom-audio-v2';
 const ALERT_AUDIO_BASE_BY_MINUTES = new Map([
   [15, '15'],
   [30, '30'],
@@ -16,28 +19,65 @@ const ALERT_AUDIO_BASE_BY_MINUTES = new Map([
 
 const ALERT_VIBRATE_PATTERN = [250, 150, 250];
 const ANDROID_NOTIFICATION_CHANNELS = {
-  '30:es:feminine': { id: 'agenda_reminder_30m_es_f', name: 'Recordatorios 30 min',  sound: 'evento_30'      },
-  '30:en:feminine': { id: 'agenda_reminder_30m_en_f', name: '30 min Reminders',      sound: 'evento_30_en'   },
-  '30:pt:feminine': { id: 'agenda_reminder_30m_pt_f', name: 'Lembretes 30 min',      sound: 'evento_30_pt'   },
-  '30:es:masculine': { id: 'agenda_reminder_30m_es_m', name: 'Recordatorios 30 min',  sound: 'm_evento_30_es' },
-  '30:en:masculine': { id: 'agenda_reminder_30m_en_m', name: '30 min Reminders',      sound: 'm_evento_30_en' },
-  '30:pt:masculine': { id: 'agenda_reminder_30m_pt_m', name: 'Lembretes 30 min',      sound: 'm_evento_30_pt' },
-  '15:es:feminine': { id: 'agenda_reminder_15m_es_f', name: 'Recordatorios 15 min',  sound: 'evento_15'      },
-  '15:en:feminine': { id: 'agenda_reminder_15m_en_f', name: '15 min Reminders',      sound: 'evento_15_en'   },
-  '15:pt:feminine': { id: 'agenda_reminder_15m_pt_f', name: 'Lembretes 15 min',      sound: 'evento_15_pt'   },
-  '15:es:masculine': { id: 'agenda_reminder_15m_es_m', name: 'Recordatorios 15 min',  sound: 'm_evento_15_es' },
-  '15:en:masculine': { id: 'agenda_reminder_15m_en_m', name: '15 min Reminders',      sound: 'm_evento_15_en' },
-  '15:pt:masculine': { id: 'agenda_reminder_15m_pt_m', name: 'Lembretes 15 min',      sound: 'm_evento_15_pt' },
-  'custom:es:feminine': { id: 'agenda_reminder_custom_es_f', name: 'Recordatorios programados', sound: 'f_evento_es' },
-  'custom:en:feminine': { id: 'agenda_reminder_custom_en_f', name: 'Scheduled reminders',      sound: 'f_evento_en' },
-  'custom:pt:feminine': { id: 'agenda_reminder_custom_pt_f', name: 'Lembretes programados',    sound: 'f_evento_pt' },
-  'custom:es:masculine': { id: 'agenda_reminder_custom_es_m', name: 'Recordatorios programados', sound: 'm_evento_es' },
-  'custom:en:masculine': { id: 'agenda_reminder_custom_en_m', name: 'Scheduled reminders',      sound: 'm_evento_en' },
-  'custom:pt:masculine': { id: 'agenda_reminder_custom_pt_m', name: 'Lembretes programados',    sound: 'm_evento_pt' },
+  '30:es:feminine': { id: 'agenda_reminder_30m_es_f_v2', name: 'Recordatorios 30 min',  sound: 'evento_30'      },
+  '30:en:feminine': { id: 'agenda_reminder_30m_en_f_v2', name: '30 min Reminders',      sound: 'evento_30_en'   },
+  '30:pt:feminine': { id: 'agenda_reminder_30m_pt_f_v2', name: 'Lembretes 30 min',      sound: 'evento_30_pt'   },
+  '30:es:masculine': { id: 'agenda_reminder_30m_es_m_v2', name: 'Recordatorios 30 min',  sound: 'm_evento_30_es' },
+  '30:en:masculine': { id: 'agenda_reminder_30m_en_m_v2', name: '30 min Reminders',      sound: 'm_evento_30_en' },
+  '30:pt:masculine': { id: 'agenda_reminder_30m_pt_m_v2', name: 'Lembretes 30 min',      sound: 'm_evento_30_pt' },
+  '15:es:feminine': { id: 'agenda_reminder_15m_es_f_v2', name: 'Recordatorios 15 min',  sound: 'evento_15'      },
+  '15:en:feminine': { id: 'agenda_reminder_15m_en_f_v2', name: '15 min Reminders',      sound: 'evento_15_en'   },
+  '15:pt:feminine': { id: 'agenda_reminder_15m_pt_f_v2', name: 'Lembretes 15 min',      sound: 'evento_15_pt'   },
+  '15:es:masculine': { id: 'agenda_reminder_15m_es_m_v2', name: 'Recordatorios 15 min',  sound: 'm_evento_15_es' },
+  '15:en:masculine': { id: 'agenda_reminder_15m_en_m_v2', name: '15 min Reminders',      sound: 'm_evento_15_en' },
+  '15:pt:masculine': { id: 'agenda_reminder_15m_pt_m_v2', name: 'Lembretes 15 min',      sound: 'm_evento_15_pt' },
+  'custom:es:feminine': { id: 'agenda_reminder_custom_es_f_v2', name: 'Recordatorios programados', sound: 'f_evento_es' },
+  'custom:en:feminine': { id: 'agenda_reminder_custom_en_f_v2', name: 'Scheduled reminders',      sound: 'f_evento_en' },
+  'custom:pt:feminine': { id: 'agenda_reminder_custom_pt_f_v2', name: 'Lembretes programados',    sound: 'f_evento_pt' },
+  'custom:es:masculine': { id: 'agenda_reminder_custom_es_m_v2', name: 'Recordatorios programados', sound: 'm_evento_es' },
+  'custom:en:masculine': { id: 'agenda_reminder_custom_en_m_v2', name: 'Scheduled reminders',      sound: 'm_evento_en' },
+  'custom:pt:masculine': { id: 'agenda_reminder_custom_pt_m_v2', name: 'Lembretes programados',    sound: 'm_evento_pt' },
 };
 
+const LEGACY_ANDROID_CHANNEL_IDS = [
+  'agenda_reminder_30m_es_f',
+  'agenda_reminder_30m_en_f',
+  'agenda_reminder_30m_pt_f',
+  'agenda_reminder_30m_es_m',
+  'agenda_reminder_30m_en_m',
+  'agenda_reminder_30m_pt_m',
+  'agenda_reminder_15m_es_f',
+  'agenda_reminder_15m_en_f',
+  'agenda_reminder_15m_pt_f',
+  'agenda_reminder_15m_es_m',
+  'agenda_reminder_15m_en_m',
+  'agenda_reminder_15m_pt_m',
+  'agenda_reminder_custom_es_f',
+  'agenda_reminder_custom_en_f',
+  'agenda_reminder_custom_pt_f',
+  'agenda_reminder_custom_es_m',
+  'agenda_reminder_custom_en_m',
+  'agenda_reminder_custom_pt_m',
+];
+
+function getStoredValue(key = '') {
+  try {
+    return globalThis?.localStorage?.getItem?.(key) || '';
+  } catch (_e) {
+    return '';
+  }
+}
+
+function setStoredValue(key = '', value = '') {
+  try {
+    globalThis?.localStorage?.setItem?.(key, String(value));
+  } catch (_e) {
+    // no-op
+  }
+}
+
 function getCapacitorRuntime() {
-  return window?.Capacitor || null;
+  return globalThis?.Capacitor || null;
 }
 
 function getLocalNotificationsPlugin() {
@@ -193,11 +233,9 @@ export class Notifier {
 
   // Pide permiso al usuario (si el navegador soporta Notifications).
   async init() {
-    if (this._isNativeAndroidRuntime()) {
+    const localNotifications = await this._resolveNativePlugin();
+    if (localNotifications && this._isAndroidRuntime()) {
       try {
-        const localNotifications = await this._resolveNativePlugin();
-        if (!localNotifications) return;
-
         const status = await localNotifications.checkPermissions();
         if (status.display !== 'granted') {
           await localNotifications.requestPermissions();
@@ -210,13 +248,13 @@ export class Notifier {
       return;
     }
 
-    if (!('Notification' in window)) {
+    if (!('Notification' in globalThis)) {
       this.permission = 'denied';
       return;
     }
-    this.permission = Notification.permission;
-    if (this.permission === 'default' && Notification.requestPermission) {
-      this.permission = await Notification.requestPermission();
+    this.permission = globalThis.Notification.permission;
+    if (this.permission === 'default' && globalThis.Notification.requestPermission) {
+      this.permission = await globalThis.Notification.requestPermission();
     }
   }
 
@@ -228,9 +266,8 @@ export class Notifier {
     this.snoozeTimers.clear();
     this._stopActiveAlert();
 
-    if (this._isNativeAndroidRuntime()) {
-      const localNotifications = this._getNativePluginSync();
-      if (!localNotifications) return;
+    const localNotifications = this._getNativePluginSync();
+    if (localNotifications && this._isAndroidRuntime()) {
       const ids = Array.from(this.nativeIds.values());
       this.nativeIds.clear();
       this.nativeMetaById.clear();
@@ -257,9 +294,8 @@ export class Notifier {
       this._stopActiveAlert();
     }
 
-    if (this._isNativeAndroidRuntime()) {
-      const localNotifications = this._getNativePluginSync();
-      if (!localNotifications) return;
+    const localNotifications = this._getNativePluginSync();
+    if (localNotifications && this._isAndroidRuntime()) {
       const idsToCancel = [];
       for (const [key, id] of this.nativeIds.entries()) {
         if (!key.startsWith(prefix)) continue;
@@ -294,7 +330,8 @@ export class Notifier {
     const offsets = rawOffsets.map(Number).filter(v => Number.isFinite(v) && v > 0);
     if (offsets.length === 0) return;
 
-    const nativePlugin = this._isNativeAndroidRuntime() ? this._getNativePluginSync() : null;
+  const nativePlugin = this._getNativePluginSync();
+  const shouldUseNativeSchedule = !!nativePlugin && this._isAndroidRuntime();
 
     for (const offsetSeconds of offsets) {
       const reminderMinutes = Math.round(offsetSeconds / 60);
@@ -306,13 +343,13 @@ export class Notifier {
         fireAt = now + 1500;
       }
 
-      if (nativePlugin) {
+      if (shouldUseNativeSchedule) {
         this._scheduleNativeNotification(event, reminderMinutes, fireAt, nativePlugin);
         continue;
       }
 
       const timerKey = `${event.id}:${reminderMinutes}`;
-      const timeoutId = window.setTimeout(() => {
+      const timeoutId = globalThis.setTimeout(() => {
         this._notify(event, reminderMinutes);
         this.timers.delete(timerKey);
       }, fireAt - now);
@@ -352,21 +389,38 @@ export class Notifier {
     if (this.activeAlert && this.activeAlert.key !== alertKey) return;
     if (this.activeAlert?.key === alertKey) return;
 
-    this.activeAlert = { key: alertKey, event, minutesBefore };
+    this.activeAlert = { key: alertKey, event, minutesBefore, playCount: 0 };
 
     this._showAlertModal(event, minutesBefore);
-    this._playAlertSound(event, minutesBefore, { loop: true });
-    this._tryVibrate();
 
-    this.alertLoopTimer = window.setInterval(() => {
-      if (!this._isAudioPlaybackActive(this.activeAudio)) {
-        this.activeAudio = null;
-        this._playAlertSound(event, minutesBefore, { loop: true });
-      }
+    const runOnePlayback = () => {
+      if (!this.activeAlert || this.activeAlert.key !== alertKey) return;
+      if (this.activeAlert.playCount >= ALERT_MAX_REPEATS) return;
+      this.activeAlert.playCount += 1;
+      this._playAlertSound(event, minutesBefore, { loop: false });
       this._tryVibrate();
+    };
+
+    runOnePlayback();
+
+    this.alertLoopTimer = globalThis.setInterval(() => {
+      if (!this.activeAlert || this.activeAlert.key !== alertKey) return;
+
+      const isPlaying = this._isAudioPlaybackActive(this.activeAudio);
+      if (this.activeAlert.playCount >= ALERT_MAX_REPEATS) {
+        if (!isPlaying) {
+          this._stopActiveAlert();
+        }
+        return;
+      }
+
+      if (!isPlaying) {
+        this.activeAudio = null;
+        runOnePlayback();
+      }
     }, ALERT_LOOP_INTERVAL_MS);
 
-    this.alertAutoStopTimer = window.setTimeout(() => {
+    this.alertAutoStopTimer = globalThis.setTimeout(() => {
       this._stopActiveAlert();
     }, ALERT_AUTO_STOP_MS);
   }
@@ -392,9 +446,9 @@ export class Notifier {
       }
       this.activeAudio = null;
     }
-    if (window?.speechSynthesis) {
+    if (globalThis?.speechSynthesis) {
       try {
-        window.speechSynthesis.cancel();
+        globalThis.speechSynthesis.cancel();
       } catch (_e) {
         // no-op
       }
@@ -413,7 +467,7 @@ export class Notifier {
     if (this.snoozeTimers.has(key)) {
       clearTimeout(this.snoozeTimers.get(key));
     }
-    const snoozeTimer = window.setTimeout(() => {
+    const snoozeTimer = globalThis.setTimeout(() => {
       this.snoozeTimers.delete(key);
       this._notify(event, minutesBefore);
     }, ALERT_SNOOZE_MS);
@@ -450,7 +504,7 @@ export class Notifier {
 
   _isAndroidRuntime() {
     const ua = String(navigator?.userAgent || '').toLowerCase();
-    const platform = String(window?.Capacitor?.getPlatform?.() || '').toLowerCase();
+    const platform = String(getCapacitorRuntime()?.getPlatform?.() || '').toLowerCase();
     return platform === 'android' || ua.includes('android');
   }
 
@@ -586,13 +640,24 @@ export class Notifier {
     if (!localNotifications) return;
 
     const channels = Object.values(ANDROID_NOTIFICATION_CHANNELS);
+    const currentVersion = getStoredValue(NATIVE_CHANNEL_SCHEMA_KEY);
+    const schemaChanged = currentVersion !== NATIVE_CHANNEL_SCHEMA_VERSION;
+
+    if (schemaChanged) {
+      const idsToDelete = new Set([
+        ...LEGACY_ANDROID_CHANNEL_IDS,
+        ...channels.map((channel) => channel.id),
+      ]);
+      for (const channelId of idsToDelete) {
+        try {
+          await localNotifications.deleteChannel({ id: channelId });
+        } catch (_e) {
+          // puede no existir aún
+        }
+      }
+    }
 
     for (const channel of channels) {
-      try {
-        await localNotifications.deleteChannel({ id: channel.id });
-      } catch (_e) {
-        // puede no existir aún
-      }
       try {
         await localNotifications.createChannel({
           id: channel.id,
@@ -607,6 +672,10 @@ export class Notifier {
       } catch (e) {
         console.warn(`No se pudo crear canal Android ${channel.id}`, e);
       }
+    }
+
+    if (schemaChanged) {
+      setStoredValue(NATIVE_CHANNEL_SCHEMA_KEY, NATIVE_CHANNEL_SCHEMA_VERSION);
     }
   }
 
@@ -698,18 +767,20 @@ export class Notifier {
   }
 
   _playAlertSpeech(event, minutesBefore) {
-    if (!window?.speechSynthesis || typeof window.SpeechSynthesisUtterance !== 'function') return false;
-    if (window.speechSynthesis.speaking) return true;
+    const speechSynthesis = globalThis?.speechSynthesis;
+    const SpeechSynthesisUtteranceCtor = globalThis?.SpeechSynthesisUtterance;
+    if (!speechSynthesis || typeof SpeechSynthesisUtteranceCtor !== 'function') return false;
+    if (speechSynthesis.speaking) return true;
 
     const text = getAlertSpeechText(this.locale, event, minutesBefore);
-    const utterance = new window.SpeechSynthesisUtterance(text);
+    const utterance = new SpeechSynthesisUtteranceCtor(text);
     utterance.lang = getSpeechLang(this.locale);
     utterance.rate = 1;
     utterance.pitch = 1;
     utterance.volume = 1;
 
     try {
-      window.speechSynthesis.speak(utterance);
+      speechSynthesis.speak(utterance);
       return true;
     } catch (_e) {
       return false;
@@ -724,8 +795,15 @@ export class Notifier {
       ? getAudioCandidates(audioBase, this.locale, ttsGender)
       : getAudioCandidates('generic', this.locale, ttsGender);
 
+    if (!Array.isArray(paths) || paths.length === 0) {
+      console.warn('No hay rutas de audio para alerta; se usará TTS de fallback.', { minutesBefore, locale: this.locale, ttsGender });
+      this._playAlertSpeech(event, minutesBefore);
+      return;
+    }
+
     const tryPlay = (index = 0) => {
       if (index >= paths.length) {
+        console.warn('No se pudo reproducir ningún archivo de alerta; se usará TTS de fallback.', { minutesBefore, locale: this.locale, ttsGender });
         this._playAlertSpeech(event, minutesBefore);
         return;
       }
@@ -758,7 +836,9 @@ export class Notifier {
         replay();
       };
       audio.onerror = () => {
+        console.warn('Error cargando audio de alerta, probando fallback.', { path: paths[index], minutesBefore, locale: this.locale, ttsGender });
         if (this.activeAudio === audio) this.activeAudio = null;
+        tryPlay(index + 1);
       };
       audio.onpause = () => {
         if (!this.activeAlert) return;
@@ -767,7 +847,11 @@ export class Notifier {
         this.activeAudio = null;
       };
       this.activeAudio = audio;
-      audio.play().catch(() => tryPlay(index + 1));
+      audio.play().catch((err) => {
+        console.warn('No se pudo reproducir audio de alerta, probando fallback.', { path: paths[index], minutesBefore, locale: this.locale, ttsGender, error: String(err?.message || err || '') });
+        if (this.activeAudio === audio) this.activeAudio = null;
+        tryPlay(index + 1);
+      });
     };
 
     tryPlay(0);

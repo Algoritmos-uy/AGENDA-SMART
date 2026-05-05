@@ -67,7 +67,7 @@ export function extractAssistantAction(content = '') {
 }
 
 export function normalizeReminderOffsets(value) {
-    const DEFAULT = [1800];
+    const DEFAULT = [900, 1800];
     if (Array.isArray(value)) {
         const parsed = value.map(Number).filter(v => Number.isFinite(v) && v > 0);
         return parsed.length > 0 ? parsed : DEFAULT;

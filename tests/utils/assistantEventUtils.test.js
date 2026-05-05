@@ -48,6 +48,16 @@ describe('assistantEventUtils', () => {
     expect(record.attendance).toBe('confirmed');
   });
 
+  it('usa 15 y 30 minutos por defecto cuando no se define reminder', () => {
+    const record = normalizeEventRecord({
+      id: 'e-default',
+      title: 'Sin reminder explícito',
+    });
+
+    expect(record.reminder_offsets).toEqual([900, 1800]);
+    expect(record.reminder_offset).toBe(900);
+  });
+
   it('normaliza asistencia por id sobre eventos persistidos', () => {
     const list = [
       { id: 'a', attendance: 'pendiente', reminder_offsets: [900] },

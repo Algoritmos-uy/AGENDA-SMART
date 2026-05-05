@@ -30,6 +30,7 @@ import {
     hasVoiceRecognitionSupport,
     mapVoiceErrorCode
 } from './utils/voiceUtils.js';
+import { toPlainAssistantText } from './utils/assistantTextUtils.js';
 import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
 // Módulo IIFE: aísla la lógica de la agenda en un ámbito propio.
@@ -64,7 +65,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     const reminderCustomInput = document.getElementById('reminder-custom');
     const reminderCustomWrapper = document.getElementById('reminder-custom-wrapper');
 
-    const DEFAULT_REMINDER_MINUTES = 30;
+    const DEFAULT_REMINDER_OFFSETS_S = [900, 1800];
 
     const viewButtons = Array.from(document.querySelectorAll('[data-target]'));
     const views = document.querySelectorAll('.agenda-view');
@@ -97,8 +98,8 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     const ASSISTANT_STORE_KEY = 'coordinalia-thread';
     const ASSISTANT_TEXT = {
         es: {
-            prompt: 'Eres CoordinalIA, asistente de Agenda Inteligente. Tono: profesional y cercano, empático y claro. Responde breve, en español, y ayuda a gestionar eventos (crear, listar, reprogramar) con pasos concretos. Si falta la API key, indica de forma amable que se debe configurar DEEPSEEK_API_KEY. Para acciones operativas (crear, actualizar, reprogramar, eliminar o cambiar asistencia), responde con un único bloque JSON plano y sin texto adicional. Si el usuario pide crear/agendar un evento y tienes título, fecha (YYYY-MM-DD) e inicio (HH:mm), responde con la forma {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. Para eliminar usa {"action":"delete_event",...}. Para asistencia usa {"action":"set_attendance","attendance":"confirmed|tentative|declined|pending",...}. end es opcional; si no está, se calcula con duration_minutes (si viene) o por defecto +60 min desde start. Si el usuario dice “duración 90 minutos”, usa duration_minutes: 90. Si falta algún dato, pídele al usuario solo ese dato faltante.',
-            welcome: 'Hola, soy CoordinalIA. Estoy aquí para ayudarte con tu agenda: crear, consultar o reprogramar eventos de forma rápida. ¿En qué te apoyo?',
+            prompt: 'Eres CoordinalIA, asistente de Agenda Inteligente. Tono: profesional y cercano, empático y claro. Responde breve, en español, y ayuda a gestionar eventos (crear, listar, reprogramar) con pasos concretos. La app NO tiene sección de configuración; no inventes rutas ni pantallas inexistentes. Cuando el usuario pregunte por cambios de proveedor TTS, voz o API key, explica comandos de consola del chat (por ejemplo /ttsprovider, /ttskey, /ttsvoice, /ttsfemale, /ttsmale) y proveedores disponibles (auto, elevenlabs, openai, google). Si falta la API key, indícalo de forma amable. Para acciones operativas (crear, actualizar, reprogramar, eliminar o cambiar asistencia), responde con un único bloque JSON plano y sin texto adicional. Si el usuario pide crear/agendar un evento y tienes título, fecha (YYYY-MM-DD) e inicio (HH:mm), responde con la forma {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. Para eliminar usa {"action":"delete_event",...}. Para asistencia usa {"action":"set_attendance","attendance":"confirmed|tentative|declined|pending",...}. end es opcional; si no está, se calcula con duration_minutes (si viene) o por defecto +60 min desde start. Si el usuario dice “duración 90 minutos”, usa duration_minutes: 90. Si falta algún dato, pídele al usuario solo ese dato faltante.',
+            welcome: 'Hola, soy CoordinalIA. Puedo ayudarte a crear, consultar o reprogramar eventos, y también a usar comandos del chat (por ejemplo cambiar proveedor/voz TTS o API key). Puedes preguntarme “¿cómo cambio el proveedor TTS?”, “¿qué proveedores hay?” o “¿cómo agrego/edito eventos manualmente?”.',
             noEvents: {
                 today: 'No hay eventos para hoy.',
                 week: 'No hay eventos esta semana.',
@@ -111,8 +112,8 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             }
         },
         en: {
-            prompt: 'You are CoordinalIA, assistant of Smart Agenda. Tone: professional yet friendly and clear. Reply briefly in English and help manage events (create, list, reschedule) with concrete steps. If the API key is missing, politely say DEEPSEEK_API_KEY must be configured. For operational actions (create, update, reschedule, delete, or attendance changes), answer with a single plain JSON block and no extra text. If the user asks to create/schedule an event and you have title, date (YYYY-MM-DD), and start (HH:mm), answer with: {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. For delete use {"action":"delete_event",...}. For attendance use {"action":"set_attendance","attendance":"confirmed|tentative|declined|pending",...}. end is optional; if missing, compute it with duration_minutes (when provided) or default to start +60 min. If user says “duration 90 minutes”, set duration_minutes: 90. If a field is missing, ask only for that missing field.',
-            welcome: "Hi, I'm CoordinalIA. I can help you create, check, or reschedule events quickly. How can I help?",
+            prompt: 'You are CoordinalIA, assistant of Smart Agenda. Tone: professional yet friendly and clear. Reply briefly in English and help manage events (create, list, reschedule) with concrete steps. The app has NO settings section; never invent screens or paths. If users ask about TTS provider, voice, or API keys, explain chat-console commands (for example /ttsprovider, /ttskey, /ttsvoice, /ttsfemale, /ttsmale) and available providers (auto, elevenlabs, openai, google). If the API key is missing, mention it politely. For operational actions (create, update, reschedule, delete, or attendance changes), answer with a single plain JSON block and no extra text. If the user asks to create/schedule an event and you have title, date (YYYY-MM-DD), and start (HH:mm), answer with: {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. For delete use {"action":"delete_event",...}. For attendance use {"action":"set_attendance","attendance":"confirmed|tentative|declined|pending",...}. end is optional; if missing, compute it with duration_minutes (when provided) or default to start +60 min. If user says “duration 90 minutes”, set duration_minutes: 90. If a field is missing, ask only for that missing field.',
+            welcome: "Hi, I'm CoordinalIA. I can help with events and with chat commands (like changing TTS provider/voice or API key). You can ask: 'how do I change TTS provider?', 'which providers are available?', or 'how do I add/edit events manually?'.",
             noEvents: {
                 today: 'No events for today.',
                 week: 'No events this week.',
@@ -125,8 +126,8 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             }
         },
         pt: {
-            prompt: 'Você é a CoordinalIA, assistente da Agenda Inteligente. Tom: profissional e próximo, claro e empático. Responda de forma breve, em português, ajudando a gerir eventos (criar, listar, reagendar) com passos concretos. Se faltar a API key, avise gentilmente que é preciso configurar DEEPSEEK_API_KEY. Para ações operacionais (criar, atualizar, reagendar, excluir ou mudar presença), responda com um único JSON simples e sem texto extra. Se o usuário pedir para criar/agendar um evento e você tiver título, data (AAAA-MM-DD) e início (HH:mm), responda com: {"action":"create_event","title":"...","date":"AAAA-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. Para excluir use {"action":"delete_event",...}. Para presença use {"action":"set_attendance","attendance":"confirmed|tentative|declined|pending",...}. end é opcional; se faltar, calcule com duration_minutes (quando vier) ou padrão +60 min a partir de start. Se o usuário disser “duração 90 minutos”, use duration_minutes: 90. Se faltar algum campo, peça apenas esse campo faltante.',
-            welcome: 'Olá, sou a CoordinalIA. Posso ajudar a criar, consultar ou reagendar eventos rapidamente. Como posso ajudar?',
+            prompt: 'Você é a CoordinalIA, assistente da Agenda Inteligente. Tom: profissional e próximo, claro e empático. Responda de forma breve, em português, ajudando a gerir eventos (criar, listar, reagendar) com passos concretos. O app NÃO tem seção de configurações; não invente telas ou caminhos inexistentes. Se o usuário perguntar sobre provedor TTS, voz ou API key, explique os comandos no chat (por exemplo /ttsprovider, /ttskey, /ttsvoice, /ttsfemale, /ttsmale) e os provedores disponíveis (auto, elevenlabs, openai, google). Se faltar API key, avise gentilmente. Para ações operacionais (criar, atualizar, reagendar, excluir ou mudar presença), responda com um único JSON simples e sem texto extra. Se o usuário pedir para criar/agendar um evento e você tiver título, data (AAAA-MM-DD) e início (HH:mm), responda com: {"action":"create_event","title":"...","date":"AAAA-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. Para excluir use {"action":"delete_event",...}. Para presença use {"action":"set_attendance","attendance":"confirmed|tentative|declined|pending",...}. end é opcional; se faltar, calcule com duration_minutes (quando vier) ou padrão +60 min a partir de start. Se o usuário disser “duração 90 minutos”, use duration_minutes: 90. Se faltar algum campo, peça apenas esse campo faltante.',
+            welcome: 'Olá, sou a CoordinalIA. Posso ajudar com eventos e com comandos do chat (como trocar provedor/voz TTS ou API key). Você pode perguntar: “como trocar o provedor TTS?”, “quais provedores existem?” ou “como adicionar/editar eventos manualmente?”.',
             noEvents: {
                 today: 'Sem eventos para hoje.',
                 week: 'Sem eventos nesta semana.',
@@ -155,6 +156,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     const ASSISTANT_ANDROID_TTS_APIURL_KEY = 'coordinalia-android-tts-api-url';
     const ASSISTANT_ANDROID_TTS_MODEL_KEY = 'coordinalia-android-tts-model';
     const ASSISTANT_ANDROID_TTS_VOICE_KEY = 'coordinalia-android-tts-voice';
+    const ASSISTANT_TTS_GENDER_KEY = 'coordinalia-tts-gender';
     const ASSISTANT_ANDROID_DEFAULT_TTS_API_URL = 'https://api.elevenlabs.io/v1';
     const ASSISTANT_ANDROID_DEFAULT_TTS_MODEL = 'eleven_v3';
     const ASSISTANT_ANDROID_DEFAULT_TTS_VOICE = 'EXAVITQu4vr4xnSDxMaL';
@@ -248,6 +250,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             const androidTtsApiUrl = String(parsed.androidTtsApiUrl || localStorage.getItem(ASSISTANT_ANDROID_TTS_APIURL_KEY) || ASSISTANT_ANDROID_DEFAULT_TTS_API_URL).trim();
             const androidTtsModel = String(parsed.androidTtsModel || localStorage.getItem(ASSISTANT_ANDROID_TTS_MODEL_KEY) || ASSISTANT_ANDROID_DEFAULT_TTS_MODEL).trim();
             const androidTtsVoice = String(parsed.androidTtsVoice || localStorage.getItem(ASSISTANT_ANDROID_TTS_VOICE_KEY) || ASSISTANT_ANDROID_DEFAULT_TTS_VOICE).trim();
+            const ttsGender = String(parsed.ttsGender || localStorage.getItem(ASSISTANT_TTS_GENDER_KEY) || '').trim();
             return {
                 provider,
                 ttsEnabled,
@@ -264,6 +267,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
                 androidTtsApiUrl,
                 androidTtsModel,
                 androidTtsVoice,
+                ttsGender,
             };
         } catch (_e) {
             return {
@@ -282,6 +286,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
                 androidTtsApiUrl: String(localStorage.getItem(ASSISTANT_ANDROID_TTS_APIURL_KEY) || ASSISTANT_ANDROID_DEFAULT_TTS_API_URL).trim(),
                 androidTtsModel: String(localStorage.getItem(ASSISTANT_ANDROID_TTS_MODEL_KEY) || ASSISTANT_ANDROID_DEFAULT_TTS_MODEL).trim(),
                 androidTtsVoice: String(localStorage.getItem(ASSISTANT_ANDROID_TTS_VOICE_KEY) || ASSISTANT_ANDROID_DEFAULT_TTS_VOICE).trim(),
+                ttsGender: String(localStorage.getItem(ASSISTANT_TTS_GENDER_KEY) || '').trim(),
             };
         }
     }
@@ -324,6 +329,9 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             }
             if (typeof config?.androidTtsVoice === 'string') {
                 localStorage.setItem(ASSISTANT_ANDROID_TTS_VOICE_KEY, config.androidTtsVoice);
+            }
+            if (typeof config?.ttsGender === 'string') {
+                localStorage.setItem(ASSISTANT_TTS_GENDER_KEY, config.ttsGender);
             }
         } catch (e) {
             console.warn('No se pudo guardar la configuración del asistente', e);
@@ -435,6 +443,22 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         cfg.androidTtsVoice = voice;
         saveAssistantConfig(cfg);
         return voice;
+    }
+
+    function saveAssistantTtsGender(gender = '') {
+        const normalized = String(gender || '').toLowerCase().trim();
+        const value = normalized === 'male' || normalized === 'masculine'
+            ? 'masculine'
+            : 'feminine';
+        const cfg = getAssistantConfig();
+        cfg.ttsGender = value;
+        saveAssistantConfig(cfg);
+        try {
+            localStorage.setItem(ASSISTANT_TTS_GENDER_KEY, value);
+        } catch (_e) {
+            // no-op
+        }
+        return value;
     }
 
     async function callAssistantAndroid(messages = [], options = {}) {
@@ -1126,9 +1150,9 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     }
 
     function setReminderDefault() {
-        const defaultSeconds = DEFAULT_REMINDER_MINUTES * 60;
+        const defaultOffsets = new Set(DEFAULT_REMINDER_OFFSETS_S);
         reminderOptionInputs.forEach((input) => {
-            input.checked = Number(input.value) === defaultSeconds;
+            input.checked = defaultOffsets.has(Number(input.value));
         });
         if (reminderCustomRadio) reminderCustomRadio.checked = false;
         reminderCustomInput.value = '';
@@ -1149,7 +1173,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         }
 
         if (checkedOffsets.length > 0) return checkedOffsets;
-        return [DEFAULT_REMINDER_MINUTES * 60];
+        return [...DEFAULT_REMINDER_OFFSETS_S];
     }
 
     function applyReminderToForm(reminderOffsetSeconds, reminderOffsets = []) {
@@ -1750,7 +1774,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     }
 
     async function speakAssistantText(text = '') {
-        const speechText = String(text || '').trim();
+        const speechText = toPlainAssistantText(text);
         if (!assistantTtsEnabled || !speechText) return;
 
         const elevenLabsOk = await speakAssistantTextWithAndroidElevenLabs(speechText).catch((e) => {
@@ -2253,6 +2277,64 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         };
     }
 
+    function getAvailableTtsProvidersForHelp() {
+        return Object.keys(ASSISTANT_TTS_PROVIDERS || {})
+            .filter(Boolean)
+            .join(', ');
+    }
+
+    function detectAssistantManualTopic(text = '') {
+        const t = normalizeLooseText(text);
+        if (!t) return null;
+
+        const asksProvider = /(proveedor|provider|provedor)/.test(t) && /\btts\b/.test(t);
+        const asksApiKey = /(api key|apikey|key|clave)/.test(t) && /(tts|voz|voice|stt|proveedor|provider|deepseek|openai|google|elevenlabs)/.test(t);
+        const asksVoice = /(voz|voice|ttsvoice|ttsfemale|ttsmale)/.test(t) && /(cambiar|change|trocar|set|usar|use|comando|manual|como|como)/.test(t);
+        const asksManualEvents = /(manual|formulario|editar|edito|edicion|edicion|agregar|anadir|añadir|crear|evento|evento manual|evento manualmente|edit event|add event)/.test(t)
+            && /(manualmente|manual|formulario|pantalla|lista|calendario|editar|agregar|anadir|añadir|crear)/.test(t);
+        const asksGeneralHelp = /(ayuda|help|manual|comandos|como usar|como se usa|que puedo preguntar|que puedes hacer|consulta)/.test(t);
+
+        if (asksProvider || asksApiKey) return 'tts-provider';
+        if (asksVoice) return 'tts-voice';
+        if (asksManualEvents) return 'events-manual';
+        if (asksGeneralHelp) return 'general-manual';
+        return null;
+    }
+
+    function buildAssistantManualReply(topic = '') {
+        const providers = getAvailableTtsProvidersForHelp();
+        const lang = String(assistantLocale || 'es').slice(0, 2);
+
+        const dict = {
+            es: {
+                'tts-provider': `Puedes cambiar el proveedor TTS desde este chat, sin sección de configuración. Proveedores disponibles: ${providers}. Comandos: /ttsprovider <proveedor> y /ttskey <proveedor> <api_key>. Ejemplo: /ttsprovider openai. Luego: /ttskey openai TU_API_KEY. También puedes usar /ttskey TU_API_KEY para el proveedor TTS actual.`,
+                'tts-voice': 'Para cambiar la voz TTS usa /ttsvoice <voice_id>. Atajos de género: /ttsfemale y /ttsmale. Si necesitas voz específica de ElevenLabs, primero define proveedor/key y luego aplica /ttsvoice con el ID de voz.',
+                'events-manual': 'Para agregar eventos manualmente: completa título, fecha, inicio, fin y guarda. Para editar: toca/clic en un evento de la lista o calendario, se carga en el formulario, modifica y actualiza. Para eliminar: usa el botón eliminar del evento.',
+                'general-manual': `Puedo ayudarte con manual rápido de la app. Ejemplos: “cómo cambiar proveedor TTS”, “qué proveedores TTS hay”, “cómo cargar API key”, “cómo cambiar voz TTS”, “cómo agregar/editar eventos manualmente”. Comandos útiles: /ttsprovider <proveedor>, /ttskey <proveedor> <api_key>, /ttsvoice <voice_id>, /ttsfemale, /ttsmale.`
+            },
+            en: {
+                'tts-provider': `You can change the TTS provider from this chat (no settings screen). Available providers: ${providers}. Commands: /ttsprovider <provider> and /ttskey <provider> <api_key>. Example: /ttsprovider openai, then /ttskey openai YOUR_API_KEY. You can also use /ttskey YOUR_API_KEY for the current provider.`,
+                'tts-voice': 'To change TTS voice use /ttsvoice <voice_id>. Gender shortcuts: /ttsfemale and /ttsmale. For a specific ElevenLabs voice, set provider/key first and then run /ttsvoice with the voice ID.',
+                'events-manual': 'To add events manually: fill title, date, start, end and save. To edit: click an event in the list/calendar, update fields in the form, then save update. To delete: use the event delete button.',
+                'general-manual': 'I can answer quick app manual questions. Ask: “how to change TTS provider”, “which TTS providers are available”, “how to set API key”, “how to change TTS voice”, or “how to add/edit events manually”. Useful commands: /ttsprovider <provider>, /ttskey <provider> <api_key>, /ttsvoice <voice_id>, /ttsfemale, /ttsmale.'
+            },
+            pt: {
+                'tts-provider': `Você pode trocar o provedor TTS por este chat (sem tela de configurações). Provedores disponíveis: ${providers}. Comandos: /ttsprovider <provedor> e /ttskey <provedor> <api_key>. Exemplo: /ttsprovider openai e depois /ttskey openai SUA_API_KEY. Também funciona /ttskey SUA_API_KEY para o provedor atual.`,
+                'tts-voice': 'Para trocar a voz TTS use /ttsvoice <voice_id>. Atalhos de gênero: /ttsfemale e /ttsmale. Para voz específica do ElevenLabs, ajuste provedor/chave e depois use /ttsvoice com o ID da voz.',
+                'events-manual': 'Para adicionar eventos manualmente: preencha título, data, início, fim e salve. Para editar: clique/toque no evento na lista/calendário, ajuste os campos do formulário e atualize. Para excluir: use o botão de excluir do evento.',
+                'general-manual': 'Posso responder dúvidas rápidas do manual do app. Pergunte: “como trocar provedor TTS”, “quais provedores TTS existem”, “como inserir API key”, “como trocar voz TTS” ou “como adicionar/editar eventos manualmente”. Comandos úteis: /ttsprovider <provedor>, /ttskey <provedor> <api_key>, /ttsvoice <voice_id>, /ttsfemale, /ttsmale.'
+            }
+        };
+
+        return dict[lang]?.[topic] || dict.es[topic] || '';
+    }
+
+    function getAssistantManualHelp(text = '') {
+        const topic = detectAssistantManualTopic(text);
+        if (!topic) return '';
+        return buildAssistantManualReply(topic);
+    }
+
     function assistantShortText(key, vars = {}) {
         const lang = String(assistantLocale || 'es').slice(0, 2);
         const dict = {
@@ -2659,10 +2741,21 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
         const ttsFemaleCmd = text.match(/^\/(?:ttsfemale|voxfemenina|vozfemenina)$/i);
         if (ttsFemaleCmd) {
+            saveAssistantTtsGender('feminine');
             const voice = saveAndroidAssistantTtsVoice(ASSISTANT_ANDROID_FEMALE_TTS_VOICE);
             assistantInput.value = '';
             appendAssistantMessage({ role: 'assistant', content: tr('assistant.ttsFemaleVoiceSet', { voice }) });
             setAssistantStatus(tr('assistant.ttsFemaleVoiceSet', { voice }));
+            return;
+        }
+
+        const ttsMaleCmd = text.match(/^\/(?:ttsmale|vozmasculina|voxmasculina)$/i);
+        if (ttsMaleCmd) {
+            saveAssistantTtsGender('masculine');
+            const currentVoice = String(getAssistantConfig().androidTtsVoice || '').trim() || 'masculine';
+            assistantInput.value = '';
+            appendAssistantMessage({ role: 'assistant', content: tr('assistant.ttsMaleVoiceSet', { voice: currentVoice }) });
+            setAssistantStatus(tr('assistant.ttsMaleVoiceSet', { voice: currentVoice }));
             return;
         }
 
@@ -2694,6 +2787,17 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
         appendAssistantMessage({ role: 'user', content: text });
         assistantInput.value = '';
+
+        const localManualHelp = getAssistantManualHelp(text);
+        if (localManualHelp) {
+            appendAssistantMessage({ role: 'assistant', content: localManualHelp });
+            await speakAssistantText(localManualHelp);
+            setAssistantStatus('');
+            setAssistantBusy(false);
+            scrollAssistantBottom();
+            return;
+        }
+
     setAssistantStatus(tr('assistant.sending'));
         setAssistantBusy(true);
 
@@ -2893,7 +2997,9 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         assistantMessages.slice(-20).forEach((msg) => {
             const div = document.createElement('div');
             div.className = `assistant-msg assistant-msg--${msg.role}`;
-            div.textContent = msg.content;
+            div.textContent = msg.role === 'assistant'
+                ? toPlainAssistantText(msg.content)
+                : String(msg.content || '');
             assistantThread.appendChild(div);
         });
     }
