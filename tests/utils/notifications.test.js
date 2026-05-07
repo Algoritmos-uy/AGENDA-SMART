@@ -130,6 +130,49 @@ describe('notifications helpers', () => {
     });
   });
 
+  it('resuelve plugin nativo usando API moderna registerPlugin cuando está disponible', () => {
+    const plugin = {
+      schedule: vi.fn(),
+      checkPermissions: vi.fn(),
+    };
+
+    const originalCapacitor = globalThis.Capacitor;
+    globalThis.Capacitor = {
+      registerPlugin: vi.fn(() => plugin),
+      Plugins: {
+        LocalNotifications: null,
+      },
+      getPlatform: () => 'android',
+    };
+
+    const notifier = new Notifier();
+    const resolved = notifier._getNativePluginSync();
+    expect(resolved).toBe(plugin);
+
+    globalThis.Capacitor = originalCapacitor;
+  });
+
+  it('usa fallback legacy cuando registerPlugin no está disponible', () => {
+    const plugin = {
+      schedule: vi.fn(),
+      checkPermissions: vi.fn(),
+    };
+
+    const originalCapacitor = globalThis.Capacitor;
+    globalThis.Capacitor = {
+      Plugins: {
+        LocalNotifications: plugin,
+      },
+      getPlatform: () => 'android',
+    };
+
+    const notifier = new Notifier();
+    const resolved = notifier._getNativePluginSync();
+    expect(resolved).toBe(plugin);
+
+    globalThis.Capacitor = originalCapacitor;
+  });
+
   it('extrae evento desde campos planos cuando Android no mantiene objeto anidado', () => {
     const notifier = new Notifier();
     const event = notifier._extractEventFromExtra({
@@ -348,5 +391,87 @@ describe('notifications helpers', () => {
     expect(timeoutSpy).not.toHaveBeenCalled();
     timeoutSpy.mockRestore();
     vi.useRealTimers();
+  });
+
+  it('limpia pendientes nativos legacy al iniciar para evitar eventos viejos', async () => {
+    const notifier = new Notifier();
+    const plugin = {
+      getPending: vi.fn().mockResolvedValue({
+        notifications: [
+          { id: 101 },
+          { notification: { id: '202' } },
+          { id: 'invalid' },
+        ],
+      }),
+      cancel: vi.fn().mockResolvedValue(undefined),
+    };
+
+    vi.spyOn(notifier, '_resolveNativePlugin').mockResolvedValue(plugin);
+    vi.spyOn(notifier, '_isAndroidRuntime').mockReturnValue(true);
+
+    await notifier.purgeLegacyPendingNativeNotifications();
+
+    expect(plugin.getPending).toHaveBeenCalledTimes(1);
+    expect(plugin.cancel).toHaveBeenCalledWith({
+      notifications: [{ id: 101 }, { id: 202 }],
+    });
+  });
+
+  it('verifica exact alarms y abre ajustes cuando está denegado y el usuario acepta', async () => {
+    const notifier = new Notifier();
+    const plugin = {
+      checkExactNotificationSetting: vi
+        .fn()
+        .mockResolvedValueOnce({ exact_alarm: 'denied' })
+        .mockResolvedValueOnce({ exact_alarm: 'granted' }),
+      changeExactNotificationSetting: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const originalConfirm = globalThis.confirm;
+    globalThis.confirm = vi.fn(() => true);
+
+    vi.spyOn(notifier, '_isAndroidRuntime').mockReturnValue(true);
+    await notifier._ensureExactAlarmPermission(plugin);
+
+    expect(plugin.checkExactNotificationSetting).toHaveBeenCalledTimes(2);
+    expect(plugin.changeExactNotificationSetting).toHaveBeenCalledTimes(1);
+    expect(notifier.exactAlarmPermission).toBe('granted');
+
+    globalThis.confirm = originalConfirm;
+  });
+
+  it('no abre ajustes de exact alarms cuando ya está concedido', async () => {
+    const notifier = new Notifier();
+    const plugin = {
+      checkExactNotificationSetting: vi.fn().mockResolvedValue({ exact_alarm: 'granted' }),
+      changeExactNotificationSetting: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const originalConfirm = globalThis.confirm;
+    globalThis.confirm = vi.fn(() => true);
+
+    vi.spyOn(notifier, '_isAndroidRuntime').mockReturnValue(true);
+    await notifier._ensureExactAlarmPermission(plugin);
+
+    expect(plugin.checkExactNotificationSetting).toHaveBeenCalledTimes(1);
+    expect(plugin.changeExactNotificationSetting).not.toHaveBeenCalled();
+    expect(notifier.exactAlarmPermission).toBe('granted');
+
+    globalThis.confirm = originalConfirm;
+  });
+
+  it('no debe iniciar alerta in-app cuando la notificación llega desde actionPerformed', () => {
+    const notifier = new Notifier();
+    const shouldStart = notifier._shouldStartInAppAlertFromNative(555, 'action');
+    expect(shouldStart).toBe(false);
+    expect(notifier.handledNativeNotificationIds.has(555)).toBe(true);
+  });
+
+  it('debe deduplicar notificaciones nativas ya procesadas en received', () => {
+    const notifier = new Notifier();
+    const first = notifier._shouldStartInAppAlertFromNative(777, 'received');
+    const second = notifier._shouldStartInAppAlertFromNative(777, 'received');
+    expect(first).toBe(true);
+    expect(second).toBe(false);
   });
 });

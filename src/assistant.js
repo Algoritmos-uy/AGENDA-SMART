@@ -27,6 +27,10 @@ const OPENAI_STT_MODEL = process.env.OPENAI_STT_MODEL || 'gpt-4o-mini-transcribe
 const OPENAI_TTS_URL = process.env.OPENAI_TTS_API_URL || joinUrl(OPENAI_API_URL, '/audio/speech');
 const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
 const OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE || 'shimmer';
+const FISH_API_URL = process.env.FISH_API_URL || '';
+const FISH_TTS_URL = process.env.FISH_TTS_API_URL || '';
+const FISH_TTS_MODEL = process.env.FISH_TTS_MODEL || 'fish-speech-1.5';
+const FISH_TTS_VOICE = process.env.FISH_TTS_VOICE || 'default';
 const GOOGLE_STT_URL = process.env.GOOGLE_STT_API_URL || 'https://speech.googleapis.com/v1/speech:recognize';
 const GOOGLE_TTS_URL = process.env.GOOGLE_TTS_API_URL || 'https://texttospeech.googleapis.com/v1/text:synthesize';
 const GEMINI_API_URL = process.env.GEMINI_API_URL || 'https://generativelanguage.googleapis.com/v1beta';
@@ -39,6 +43,13 @@ function joinUrl(base = '', suffix = '') {
   const s = String(suffix || '').trim().replace(/^\/+/, '');
   if (!s) return b;
   return `${b}/${s}`;
+}
+
+function resolveFishTtsUrl(apiUrl = '') {
+  const base = String(apiUrl || '').trim();
+  if (!base) return '';
+  if (/\/audio\/speech(?:\?|$)/i.test(base)) return base;
+  return joinUrl(base, '/audio/speech');
 }
 
 function loadLocalEnv() {
@@ -141,6 +152,7 @@ function resolveTranscribeConfig(options = {}) {
 function normalizeTtsProvider(value = '') {
   const raw = String(value || '').toLowerCase().trim();
   if (raw === '11labs') return 'elevenlabs';
+  if (['fish', 'fishaudio', 'fish-audio', 'fishspeech', 'fish-speech'].includes(raw)) return 'fish';
   if (['openai', 'gpt-4o-mini-tts', 'gpt4o-mini-tts'].includes(raw)) return 'openai';
   if (['google', 'google-speech', 'google speech'].includes(raw)) return 'google';
   if (['gemini', 'gemini-tts', 'gemini-3.1-flash-tts-preview', 'gemini flash tts'].includes(raw)) return 'gemini';
@@ -166,6 +178,11 @@ function isTtsProviderAvailable(provider = 'auto', options = {}) {
   if (provider === 'openai') {
     return !!String(options.openaiApiKey || process.env.OPENAI_API_KEY || '').trim() && !!OPENAI_TTS_URL;
   }
+  if (provider === 'fish') {
+    const fishKey = String(options.fishApiKey || options.apiKey || process.env.FISH_API_KEY || '').trim();
+    const fishUrl = resolveFishTtsUrl(String(options.fishApiUrl || options.apiUrl || FISH_TTS_URL || FISH_API_URL).trim());
+    return !!fishKey && !!fishUrl;
+  }
   if (provider === 'google') {
     return !!String(options.googleApiKey || process.env.GOOGLE_SPEECH_API_KEY || process.env.GOOGLE_API_KEY || '').trim() && !!GOOGLE_TTS_URL;
   }
@@ -178,7 +195,7 @@ function isTtsProviderAvailable(provider = 'auto', options = {}) {
 function resolveTtsProviders({ provider, apiKey } = {}) {
   const selected = normalizeTtsProvider(provider || process.env.VOICE_PROVIDER || 'auto');
   const directKey = String(apiKey || '').trim();
-  const defaultOrder = ['elevenlabs', 'openai', 'google', 'gemini'];
+  const defaultOrder = ['elevenlabs', 'fish', 'openai', 'google', 'gemini'];
   const ordered = selected === 'auto'
     ? defaultOrder
     : [selected, ...defaultOrder.filter((p) => p !== selected)];
@@ -187,13 +204,15 @@ function resolveTtsProviders({ provider, apiKey } = {}) {
     if (selected !== 'auto' && p === selected && directKey) return true;
     return isTtsProviderAvailable(p, {
     elevenlabsApiKey: process.env.ELEVENLABS_API_KEY,
+    fishApiKey: process.env.FISH_API_KEY,
+    fishApiUrl: process.env.FISH_TTS_API_URL || process.env.FISH_API_URL,
     openaiApiKey: process.env.OPENAI_API_KEY,
     googleApiKey: process.env.GOOGLE_SPEECH_API_KEY || process.env.GOOGLE_API_KEY,
     geminiApiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
     });
   });
   if (!available.length) {
-  const err = new Error('Falta API key para síntesis de voz (ELEVENLABS_API_KEY, OPENAI_API_KEY, GOOGLE_SPEECH_API_KEY o GEMINI_API_KEY)');
+  const err = new Error('Falta API key para síntesis de voz (ELEVENLABS_API_KEY, FISH_API_KEY, OPENAI_API_KEY, GOOGLE_SPEECH_API_KEY o GEMINI_API_KEY)');
     err.code = 'NO_TTS_API_KEY';
     throw err;
   }
@@ -529,6 +548,35 @@ async function synthesizeSpeech(payload = {}, options = {}) {
             input: cleanText,
             voice: voiceId,
             format: format === 'mp3' ? 'mp3' : format,
+          }),
+        });
+      } else if (provider === 'fish') {
+        const apiKey = String(options.apiKey || process.env.FISH_API_KEY || '').trim();
+        if (!apiKey) {
+          const err = new Error('Falta FISH_API_KEY para TTS');
+          err.code = 'NO_TTS_API_KEY';
+          throw err;
+        }
+        const endpoint = resolveFishTtsUrl(String(options.apiUrl || process.env.FISH_TTS_API_URL || process.env.FISH_API_URL || FISH_TTS_URL || FISH_API_URL).trim());
+        if (!endpoint) {
+          const err = new Error('Falta FISH_API_URL/FISH_TTS_API_URL para TTS');
+          err.code = 'NO_TTS_API_URL';
+          throw err;
+        }
+        const model = String(options.model || process.env.FISH_TTS_MODEL || FISH_TTS_MODEL).trim();
+        const voiceId = String(voice || options.voice || process.env.FISH_TTS_VOICE || FISH_TTS_VOICE).trim();
+        res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            input: cleanText,
+            voice: voiceId,
+            format: format === 'mp3' ? 'mp3' : format,
+            response_format: format === 'mp3' ? 'mp3' : format,
           }),
         });
       } else if (provider === 'google') {

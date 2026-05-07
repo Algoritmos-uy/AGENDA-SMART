@@ -12,6 +12,8 @@ const ASSISTANT_CONFIG_KEY = 'coordinalia-config';
 const ASSISTANT_TTS_GENDER_KEY = 'coordinalia-tts-gender';
 const NATIVE_CHANNEL_SCHEMA_KEY = 'agenda-native-channel-schema';
 const NATIVE_CHANNEL_SCHEMA_VERSION = '2026-05-custom-audio-v2';
+const EXACT_ALARM_PROMPT_KEY = 'agenda-exact-alarm-prompt-at';
+const EXACT_ALARM_PROMPT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const ALERT_AUDIO_BASE_BY_MINUTES = new Map([
   [15, '15'],
   [30, '30'],
@@ -80,8 +82,44 @@ function getCapacitorRuntime() {
   return globalThis?.Capacitor || null;
 }
 
+let localNotificationsPluginProxy = null;
+let localNotificationsPluginProxyRuntime = null;
+
+function isLocalNotificationsPluginLike(plugin) {
+  return !!plugin
+    && typeof plugin.schedule === 'function'
+    && typeof plugin.checkPermissions === 'function';
+}
+
+function resolveRegisteredLocalNotificationsPlugin(runtime = null) {
+  const capRuntime = runtime || getCapacitorRuntime();
+  if (localNotificationsPluginProxyRuntime !== capRuntime) {
+    localNotificationsPluginProxy = null;
+    localNotificationsPluginProxyRuntime = capRuntime;
+  }
+
+  if (localNotificationsPluginProxy && isLocalNotificationsPluginLike(localNotificationsPluginProxy)) {
+    return localNotificationsPluginProxy;
+  }
+
+  if (!capRuntime || typeof capRuntime.registerPlugin !== 'function') return null;
+  try {
+    const plugin = capRuntime.registerPlugin('LocalNotifications');
+    if (!plugin) return null;
+    localNotificationsPluginProxy = plugin;
+    return plugin;
+  } catch (_e) {
+    return null;
+  }
+}
+
 function getLocalNotificationsPlugin() {
-  return getCapacitorRuntime()?.Plugins?.LocalNotifications || null;
+  const runtime = getCapacitorRuntime();
+  const registered = resolveRegisteredLocalNotificationsPlugin(runtime);
+  if (registered && isLocalNotificationsPluginLike(registered)) return registered;
+
+  const legacy = runtime?.Plugins?.LocalNotifications || null;
+  return isLocalNotificationsPluginLike(legacy) ? legacy : null;
 }
 
 function getSpeechLang(locale = 'es') {
@@ -222,9 +260,11 @@ export class Notifier {
     this.activeAudio = null;
     this.nativeIds = new Map();
   this.nativeMetaById = new Map();
+    this.handledNativeNotificationIds = new Set();
     this.nativeListenersBound = false;
     this.nativeChannelsReady = false;
     this.nativePlugin = null;
+    this.exactAlarmPermission = 'unknown';
   }
 
   setLocale(locale = 'es') {
@@ -240,6 +280,7 @@ export class Notifier {
         if (status.display !== 'granted') {
           await localNotifications.requestPermissions();
         }
+        await this._ensureExactAlarmPermission(localNotifications);
         await this._ensureNativeChannels();
         await this._bindNativeListeners();
       } catch (e) {
@@ -255,6 +296,95 @@ export class Notifier {
     this.permission = globalThis.Notification.permission;
     if (this.permission === 'default' && globalThis.Notification.requestPermission) {
       this.permission = await globalThis.Notification.requestPermission();
+    }
+  }
+
+  _shouldPromptExactAlarmSettings() {
+    const lastPromptRaw = getStoredValue(EXACT_ALARM_PROMPT_KEY);
+    const lastPromptAt = Number(lastPromptRaw);
+    if (!Number.isFinite(lastPromptAt) || lastPromptAt <= 0) return true;
+    return (Date.now() - lastPromptAt) >= EXACT_ALARM_PROMPT_COOLDOWN_MS;
+  }
+
+  _markExactAlarmPromptedNow() {
+    setStoredValue(EXACT_ALARM_PROMPT_KEY, String(Date.now()));
+  }
+
+  _getExactAlarmPromptMessage() {
+    const lang = normalizeLocale(this.locale || 'es');
+    if (lang === 'en') {
+      return 'To improve reminder reliability with the app in background/locked/closed, please allow Exact Alarms for AgendaIA Smart. Open settings now?';
+    }
+    if (lang === 'pt') {
+      return 'Para melhorar a confiabilidade dos lembretes com o app em segundo plano/tela bloqueada/fechado, permita Alarmes Exatos para o AgendaIA Smart. Abrir configurações agora?';
+    }
+    return 'Para mejorar la confiabilidad de recordatorios con la app en segundo plano/pantalla bloqueada/cerrada, permite Alarmas exactas para AgendaIA Smart. ¿Abrir ajustes ahora?';
+  }
+
+  async _checkExactAlarmPermission(localNotifications) {
+    if (!localNotifications || typeof localNotifications.checkExactNotificationSetting !== 'function') {
+      return 'unavailable';
+    }
+    try {
+      const status = await localNotifications.checkExactNotificationSetting();
+      return String(status?.exact_alarm || '').toLowerCase() === 'granted' ? 'granted' : 'denied';
+    } catch (_e) {
+      return 'unavailable';
+    }
+  }
+
+  async _ensureExactAlarmPermission(localNotifications) {
+    if (!localNotifications || !this._isAndroidRuntime()) return;
+
+    const initialStatus = await this._checkExactAlarmPermission(localNotifications);
+    this.exactAlarmPermission = initialStatus;
+
+    if (initialStatus !== 'denied') return;
+
+    console.warn('Alarmas exactas denegadas: Android puede retrasar recordatorios en segundo plano/app cerrada.');
+
+    if (typeof localNotifications.changeExactNotificationSetting !== 'function') return;
+    if (!this._shouldPromptExactAlarmSettings()) return;
+
+    this._markExactAlarmPromptedNow();
+
+    const askUser = typeof globalThis?.confirm === 'function'
+      ? globalThis.confirm(this._getExactAlarmPromptMessage())
+      : false;
+    if (!askUser) return;
+
+    try {
+      await localNotifications.changeExactNotificationSetting();
+      this.exactAlarmPermission = await this._checkExactAlarmPermission(localNotifications);
+      if (this.exactAlarmPermission !== 'granted') {
+        console.warn('Alarmas exactas siguen denegadas tras abrir ajustes.');
+      }
+    } catch (e) {
+      console.warn('No se pudo abrir ajuste de alarmas exactas', e);
+    }
+  }
+
+  async purgeLegacyPendingNativeNotifications() {
+    const localNotifications = await this._resolveNativePlugin();
+    if (!localNotifications || !this._isAndroidRuntime()) return;
+    if (typeof localNotifications.getPending !== 'function') return;
+
+    try {
+      const pendingResult = await localNotifications.getPending();
+      const pending = Array.isArray(pendingResult?.notifications)
+        ? pendingResult.notifications
+        : [];
+      const ids = pending
+        .map((notification) => this._extractNotificationId(notification))
+        .filter((id) => Number.isFinite(id) && id > 0);
+
+      if (!ids.length) return;
+
+      await localNotifications.cancel({ notifications: ids.map((id) => ({ id })) });
+      this.nativeIds.clear();
+      ids.forEach((id) => this.nativeMetaById.delete(id));
+    } catch (e) {
+      console.warn('No se pudieron limpiar notificaciones nativas pendientes', e);
     }
   }
 
@@ -503,7 +633,7 @@ export class Notifier {
   }
 
   _isAndroidRuntime() {
-    const ua = String(navigator?.userAgent || '').toLowerCase();
+    const ua = String(globalThis?.navigator?.userAgent || '').toLowerCase();
     const platform = String(getCapacitorRuntime()?.getPlatform?.() || '').toLowerCase();
     return platform === 'android' || ua.includes('android');
   }
@@ -602,6 +732,30 @@ export class Notifier {
     return true;
   }
 
+  _rememberHandledNativeNotificationId(notificationId = null) {
+    if (!Number.isFinite(notificationId) || notificationId <= 0) return;
+    this.handledNativeNotificationIds.add(notificationId);
+    if (this.handledNativeNotificationIds.size > 200) {
+      const first = this.handledNativeNotificationIds.values().next();
+      if (!first.done) this.handledNativeNotificationIds.delete(first.value);
+    }
+  }
+
+  _shouldStartInAppAlertFromNative(notificationId = null, source = 'received') {
+    if (source === 'action') {
+      this._rememberHandledNativeNotificationId(notificationId);
+      return false;
+    }
+    if (!Number.isFinite(notificationId) || notificationId <= 0) {
+      return true;
+    }
+    if (this.handledNativeNotificationIds.has(notificationId)) {
+      return false;
+    }
+    this._rememberHandledNativeNotificationId(notificationId);
+    return true;
+  }
+
   async _bindNativeListeners() {
     if (this.nativeListenersBound) return;
     this.nativeListenersBound = true;
@@ -609,8 +763,9 @@ export class Notifier {
     const localNotifications = await this._resolveNativePlugin();
     if (!localNotifications) return;
 
-    const triggerFromNotification = (notification) => {
+    const triggerFromNotification = (notification, source = 'received') => {
       const notificationId = this._extractNotificationId(notification);
+      if (!this._shouldStartInAppAlertFromNative(notificationId, source)) return;
       const metadata = notificationId ? this.nativeMetaById.get(notificationId) : null;
       const extra = notification?.extra || notification?.notification?.extra || {};
       const channelId = String(notification?.channelId || notification?.notification?.channelId || '').trim();
@@ -624,11 +779,11 @@ export class Notifier {
     };
 
     await localNotifications.addListener('localNotificationReceived', (notification) => {
-      triggerFromNotification(notification);
+      triggerFromNotification(notification, 'received');
     });
 
     await localNotifications.addListener('localNotificationActionPerformed', (notificationAction) => {
-      triggerFromNotification(notificationAction);
+      triggerFromNotification(notificationAction, 'action');
     });
   }
 
@@ -758,9 +913,9 @@ export class Notifier {
 
   _tryVibrate() {
     if (!this._isAndroidRuntime()) return;
-    if (!navigator?.vibrate) return;
+    if (!globalThis?.navigator?.vibrate) return;
     try {
-      navigator.vibrate(ALERT_VIBRATE_PATTERN);
+      globalThis.navigator.vibrate(ALERT_VIBRATE_PATTERN);
     } catch (_e) {
       // no-op
     }

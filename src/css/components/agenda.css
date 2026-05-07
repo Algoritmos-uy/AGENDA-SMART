@@ -88,6 +88,35 @@
     font-weight: 700;
 }
 
+.week-day__label[role="button"],
+.month-day__header[role="button"] {
+    cursor: pointer;
+    border-radius: var(--radius-1);
+    transform: translateY(0);
+    transition:
+        background-color 120ms ease,
+        box-shadow 120ms ease,
+        transform 90ms ease;
+}
+
+.week-day__label[role="button"]:hover,
+.month-day__header[role="button"]:hover {
+    background: var(--color-surface-muted);
+}
+
+.week-day__label[role="button"]:focus-visible,
+.month-day__header[role="button"]:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--color-primary-soft);
+}
+
+@media (hover: none) and (pointer: coarse) {
+    .week-day__label[role="button"]:active,
+    .month-day__header[role="button"]:active {
+        transform: translateY(1px) scale(0.995);
+    }
+}
+
 .month-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));

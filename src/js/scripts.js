@@ -66,6 +66,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     const reminderCustomWrapper = document.getElementById('reminder-custom-wrapper');
 
     const DEFAULT_REMINDER_OFFSETS_S = [900, 1800];
+    const EVENT_RETENTION_PAST_DAYS = 30;
 
     const viewButtons = Array.from(document.querySelectorAll('[data-target]'));
     const views = document.querySelectorAll('.agenda-view');
@@ -96,9 +97,11 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     const assistantClearBtn = document.getElementById('assistant-clear');
 
     const ASSISTANT_STORE_KEY = 'coordinalia-thread';
+    const ASSISTANT_WELCOME_VERSION_KEY = 'coordinalia-welcome-version';
+    const ASSISTANT_WELCOME_VERSION = '1.3.6-manual-help';
     const ASSISTANT_TEXT = {
         es: {
-            prompt: 'Eres CoordinalIA, asistente de Agenda Inteligente. Tono: profesional y cercano, empático y claro. Responde breve, en español, y ayuda a gestionar eventos (crear, listar, reprogramar) con pasos concretos. La app NO tiene sección de configuración; no inventes rutas ni pantallas inexistentes. Cuando el usuario pregunte por cambios de proveedor TTS, voz o API key, explica comandos de consola del chat (por ejemplo /ttsprovider, /ttskey, /ttsvoice, /ttsfemale, /ttsmale) y proveedores disponibles (auto, elevenlabs, openai, google). Si falta la API key, indícalo de forma amable. Para acciones operativas (crear, actualizar, reprogramar, eliminar o cambiar asistencia), responde con un único bloque JSON plano y sin texto adicional. Si el usuario pide crear/agendar un evento y tienes título, fecha (YYYY-MM-DD) e inicio (HH:mm), responde con la forma {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. Para eliminar usa {"action":"delete_event",...}. Para asistencia usa {"action":"set_attendance","attendance":"confirmed|tentative|declined|pending",...}. end es opcional; si no está, se calcula con duration_minutes (si viene) o por defecto +60 min desde start. Si el usuario dice “duración 90 minutos”, usa duration_minutes: 90. Si falta algún dato, pídele al usuario solo ese dato faltante.',
+            prompt: 'Eres CoordinalIA, asistente de Agenda Inteligente. Tono: profesional y cercano, empático y claro. Responde breve, en español, y ayuda a gestionar eventos (crear, listar, reprogramar) con pasos concretos. La app NO tiene sección de configuración; no inventes rutas ni pantallas inexistentes. Cuando el usuario pregunte por cambios de proveedor TTS, voz o API key, explica comandos de consola del chat (por ejemplo /ttsprovider, /ttskey, /ttsvoice, /ttsfemale, /ttsmale) y proveedores disponibles (auto, elevenlabs, fish, openai, google). Si falta la API key, indícalo de forma amable. Para acciones operativas (crear, actualizar, reprogramar, eliminar o cambiar asistencia), responde con un único bloque JSON plano y sin texto adicional. Si el usuario pide crear/agendar un evento y tienes título, fecha (YYYY-MM-DD) e inicio (HH:mm), responde con la forma {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. Para eliminar usa {"action":"delete_event",...}. Para asistencia usa {"action":"set_attendance","attendance":"confirmed|tentative|declined|pending",...}. end es opcional; si no está, se calcula con duration_minutes (si viene) o por defecto +60 min desde start. Si el usuario dice “duración 90 minutos”, usa duration_minutes: 90. Si falta algún dato, pídele al usuario solo ese dato faltante.',
             welcome: 'Hola, soy CoordinalIA. Puedo ayudarte a crear, consultar o reprogramar eventos, y también a usar comandos del chat (por ejemplo cambiar proveedor/voz TTS o API key). Puedes preguntarme “¿cómo cambio el proveedor TTS?”, “¿qué proveedores hay?” o “¿cómo agrego/edito eventos manualmente?”.',
             noEvents: {
                 today: 'No hay eventos para hoy.',
@@ -112,7 +115,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             }
         },
         en: {
-            prompt: 'You are CoordinalIA, assistant of Smart Agenda. Tone: professional yet friendly and clear. Reply briefly in English and help manage events (create, list, reschedule) with concrete steps. The app has NO settings section; never invent screens or paths. If users ask about TTS provider, voice, or API keys, explain chat-console commands (for example /ttsprovider, /ttskey, /ttsvoice, /ttsfemale, /ttsmale) and available providers (auto, elevenlabs, openai, google). If the API key is missing, mention it politely. For operational actions (create, update, reschedule, delete, or attendance changes), answer with a single plain JSON block and no extra text. If the user asks to create/schedule an event and you have title, date (YYYY-MM-DD), and start (HH:mm), answer with: {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. For delete use {"action":"delete_event",...}. For attendance use {"action":"set_attendance","attendance":"confirmed|tentative|declined|pending",...}. end is optional; if missing, compute it with duration_minutes (when provided) or default to start +60 min. If user says “duration 90 minutes”, set duration_minutes: 90. If a field is missing, ask only for that missing field.',
+            prompt: 'You are CoordinalIA, assistant of Smart Agenda. Tone: professional yet friendly and clear. Reply briefly in English and help manage events (create, list, reschedule) with concrete steps. The app has NO settings section; never invent screens or paths. If users ask about TTS provider, voice, or API keys, explain chat-console commands (for example /ttsprovider, /ttskey, /ttsvoice, /ttsfemale, /ttsmale) and available providers (auto, elevenlabs, fish, openai, google). If the API key is missing, mention it politely. For operational actions (create, update, reschedule, delete, or attendance changes), answer with a single plain JSON block and no extra text. If the user asks to create/schedule an event and you have title, date (YYYY-MM-DD), and start (HH:mm), answer with: {"action":"create_event","title":"...","date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. For delete use {"action":"delete_event",...}. For attendance use {"action":"set_attendance","attendance":"confirmed|tentative|declined|pending",...}. end is optional; if missing, compute it with duration_minutes (when provided) or default to start +60 min. If user says “duration 90 minutes”, set duration_minutes: 90. If a field is missing, ask only for that missing field.',
             welcome: "Hi, I'm CoordinalIA. I can help with events and with chat commands (like changing TTS provider/voice or API key). You can ask: 'how do I change TTS provider?', 'which providers are available?', or 'how do I add/edit events manually?'.",
             noEvents: {
                 today: 'No events for today.',
@@ -126,7 +129,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             }
         },
         pt: {
-            prompt: 'Você é a CoordinalIA, assistente da Agenda Inteligente. Tom: profissional e próximo, claro e empático. Responda de forma breve, em português, ajudando a gerir eventos (criar, listar, reagendar) com passos concretos. O app NÃO tem seção de configurações; não invente telas ou caminhos inexistentes. Se o usuário perguntar sobre provedor TTS, voz ou API key, explique os comandos no chat (por exemplo /ttsprovider, /ttskey, /ttsvoice, /ttsfemale, /ttsmale) e os provedores disponíveis (auto, elevenlabs, openai, google). Se faltar API key, avise gentilmente. Para ações operacionais (criar, atualizar, reagendar, excluir ou mudar presença), responda com um único JSON simples e sem texto extra. Se o usuário pedir para criar/agendar um evento e você tiver título, data (AAAA-MM-DD) e início (HH:mm), responda com: {"action":"create_event","title":"...","date":"AAAA-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. Para excluir use {"action":"delete_event",...}. Para presença use {"action":"set_attendance","attendance":"confirmed|tentative|declined|pending",...}. end é opcional; se faltar, calcule com duration_minutes (quando vier) ou padrão +60 min a partir de start. Se o usuário disser “duração 90 minutos”, use duration_minutes: 90. Se faltar algum campo, peça apenas esse campo faltante.',
+            prompt: 'Você é a CoordinalIA, assistente da Agenda Inteligente. Tom: profissional e próximo, claro e empático. Responda de forma breve, em português, ajudando a gerir eventos (criar, listar, reagendar) com passos concretos. O app NÃO tem seção de configurações; não invente telas ou caminhos inexistentes. Se o usuário perguntar sobre provedor TTS, voz ou API key, explique os comandos no chat (por exemplo /ttsprovider, /ttskey, /ttsvoice, /ttsfemale, /ttsmale) e os provedores disponíveis (auto, elevenlabs, fish, openai, google). Se faltar API key, avise gentilmente. Para ações operacionais (criar, atualizar, reagendar, excluir ou mudar presença), responda com um único JSON simples e sem texto extra. Se o usuário pedir para criar/agendar um evento e você tiver título, data (AAAA-MM-DD) e início (HH:mm), responda com: {"action":"create_event","title":"...","date":"AAAA-MM-DD","start":"HH:mm","end":"HH:mm","duration_minutes":90,"description":"...","color":"#2563eb"}. Para excluir use {"action":"delete_event",...}. Para presença use {"action":"set_attendance","attendance":"confirmed|tentative|declined|pending",...}. end é opcional; se faltar, calcule com duration_minutes (quando vier) ou padrão +60 min a partir de start. Se o usuário disser “duração 90 minutos”, use duration_minutes: 90. Se faltar algum campo, peça apenas esse campo faltante.',
             welcome: 'Olá, sou a CoordinalIA. Posso ajudar com eventos e com comandos do chat (como trocar provedor/voz TTS ou API key). Você pode perguntar: “como trocar o provedor TTS?”, “quais provedores existem?” ou “como adicionar/editar eventos manualmente?”.',
             noEvents: {
                 today: 'Sem eventos para hoje.',
@@ -152,6 +155,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     const ASSISTANT_STT_APIURL_KEY = 'coordinalia-stt-api-url';
     const ASSISTANT_OPENAI_APIKEY_KEY = 'coordinalia-openai-api-key';
     const ASSISTANT_GOOGLE_APIKEY_KEY = 'coordinalia-google-api-key';
+    const ASSISTANT_FISH_APIKEY_KEY = 'coordinalia-fish-api-key';
     const ASSISTANT_ANDROID_TTS_APIKEY_KEY = 'coordinalia-android-tts-api-key';
     const ASSISTANT_ANDROID_TTS_APIURL_KEY = 'coordinalia-android-tts-api-url';
     const ASSISTANT_ANDROID_TTS_MODEL_KEY = 'coordinalia-android-tts-model';
@@ -173,6 +177,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     const ASSISTANT_TTS_PROVIDERS = {
         auto: { id: 'auto' },
         elevenlabs: { id: 'elevenlabs' },
+        fish: { id: 'fish' },
         openai: { id: 'openai' },
         google: { id: 'google' },
     };
@@ -180,6 +185,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     const assistantMessages = [];
     let assistantUnsubscribe = null;
     let assistantPendingAction = null;
+    let assistantPendingTtsSetup = null;
     let assistantLocale = 'es';
     let assistantStrings = ASSISTANT_TEXT.es;
     let assistantSystemPrompt = assistantStrings.prompt;
@@ -243,6 +249,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             const sttApiUrl = String(parsed.sttApiUrl || localStorage.getItem(ASSISTANT_STT_APIURL_KEY) || '').trim();
             const openaiApiKey = String(parsed.openaiApiKey || localStorage.getItem(ASSISTANT_OPENAI_APIKEY_KEY) || '').trim();
             const googleApiKey = String(parsed.googleApiKey || localStorage.getItem(ASSISTANT_GOOGLE_APIKEY_KEY) || '').trim();
+            const fishApiKey = String(parsed.fishApiKey || localStorage.getItem(ASSISTANT_FISH_APIKEY_KEY) || '').trim();
             const androidApiKey = String(parsed.androidApiKey || localStorage.getItem(ASSISTANT_ANDROID_APIKEY_KEY) || '').trim();
             const androidApiUrl = String(parsed.androidApiUrl || localStorage.getItem(ASSISTANT_ANDROID_APIURL_KEY) || ASSISTANT_ANDROID_DEFAULT_API_URL).trim();
             const androidModel = String(parsed.androidModel || localStorage.getItem(ASSISTANT_ANDROID_MODEL_KEY) || ASSISTANT_ANDROID_DEFAULT_MODEL).trim();
@@ -260,6 +267,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
                 sttApiUrl,
                 openaiApiKey,
                 googleApiKey,
+                fishApiKey,
                 androidApiKey,
                 androidApiUrl,
                 androidModel,
@@ -279,6 +287,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
                 sttApiUrl: String(localStorage.getItem(ASSISTANT_STT_APIURL_KEY) || '').trim(),
                 openaiApiKey: String(localStorage.getItem(ASSISTANT_OPENAI_APIKEY_KEY) || '').trim(),
                 googleApiKey: String(localStorage.getItem(ASSISTANT_GOOGLE_APIKEY_KEY) || '').trim(),
+                fishApiKey: String(localStorage.getItem(ASSISTANT_FISH_APIKEY_KEY) || '').trim(),
                 androidApiKey: String(localStorage.getItem(ASSISTANT_ANDROID_APIKEY_KEY) || '').trim(),
                 androidApiUrl: String(localStorage.getItem(ASSISTANT_ANDROID_APIURL_KEY) || ASSISTANT_ANDROID_DEFAULT_API_URL).trim(),
                 androidModel: String(localStorage.getItem(ASSISTANT_ANDROID_MODEL_KEY) || ASSISTANT_ANDROID_DEFAULT_MODEL).trim(),
@@ -311,6 +320,9 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             }
             if (typeof config?.googleApiKey === 'string') {
                 localStorage.setItem(ASSISTANT_GOOGLE_APIKEY_KEY, config.googleApiKey);
+            }
+            if (typeof config?.fishApiKey === 'string') {
+                localStorage.setItem(ASSISTANT_FISH_APIKEY_KEY, config.fishApiKey);
             }
             if (typeof config?.androidApiUrl === 'string') {
                 localStorage.setItem(ASSISTANT_ANDROID_APIURL_KEY, config.androidApiUrl);
@@ -390,6 +402,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         const raw = String(value || '').toLowerCase().trim();
         if (['auto'].includes(raw)) return 'auto';
         if (['elevenlabs', '11labs', 'eleven'].includes(raw)) return 'elevenlabs';
+        if (['fish', 'fishaudio', 'fish-audio', 'fishspeech', 'fish-speech'].includes(raw)) return 'fish';
         if (['openai', 'gpt-4o-mini-tts', 'gpt4o-mini-tts'].includes(raw)) return 'openai';
         if (['google', 'google-speech', 'google speech'].includes(raw)) return 'google';
         return '';
@@ -398,13 +411,14 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     function saveApiKeyByProvider(provider = '', apiKey = '') {
         const p = String(provider || '').trim();
         const key = String(apiKey || '').trim();
-        if (p !== 'openai' && p !== 'google') {
+        if (p !== 'openai' && p !== 'google' && p !== 'fish') {
             return saveAndroidAssistantTtsApiKey(key);
         }
 
         const cfg = getAssistantConfig();
         if (p === 'openai') cfg.openaiApiKey = key;
         if (p === 'google') cfg.googleApiKey = key;
+        if (p === 'fish') cfg.fishApiKey = key;
         saveAssistantConfig(cfg);
         return key;
     }
@@ -584,6 +598,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             startClock();
             try { await notifier.init(); } catch (e) { console.warn('Notifier init failed', e); }
             notifier.setLocale?.(assistantLocale);
+            try { await notifier.purgeLegacyPendingNativeNotifications?.(); } catch (e) { console.warn('Legacy pending cleanup failed', e); }
 
             await loadEventsFromStore();
             renderAll();
@@ -687,9 +702,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         renderAll();
     }
 
-    // Cambia entre vistas (diaria, semanal, mensual) con estado accesible.
-    function handleViewSwitch(evt) {
-        const target = normalizeViewTarget(evt.currentTarget.dataset.target);
+    function setActiveView(target, { shouldRender = true } = {}) {
         viewButtons.forEach(btn => {
             const isActive = normalizeViewTarget(btn.dataset.target) === target;
             btn.classList.toggle('is-active', isActive);
@@ -698,7 +711,21 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         views.forEach(view => {
             view.classList.toggle('is-hidden', view.dataset.view !== target);
         });
-        renderAll(); // re-render al cambiar vista
+        if (shouldRender) renderAll();
+    }
+
+    function openDailyViewForDate(day) {
+        if (!day || Number.isNaN(day.getTime?.())) return;
+        if (baseDateInput) {
+            baseDateInput.value = formatISODate(day);
+        }
+        setActiveView('daily', { shouldRender: true });
+    }
+
+    // Cambia entre vistas (diaria, semanal, mensual) con estado accesible.
+    function handleViewSwitch(evt) {
+        const target = normalizeViewTarget(evt.currentTarget.dataset.target);
+        setActiveView(target, { shouldRender: true }); // re-render al cambiar vista
     }
 
     // Limpia el formulario y regresa a modo "nuevo evento".
@@ -777,26 +804,76 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         return getEventAttendanceById(getEvents(), id, 'pending');
     }
 
+    function getEventEndTimestampMs(ev = {}) {
+        const date = String(ev?.date || '').trim();
+        const end = String(ev?.end || ev?.start || '').trim();
+        if (!date || !end) return Number.NaN;
+        const ts = new Date(`${date}T${end}`).getTime();
+        return Number.isFinite(ts) ? ts : Number.NaN;
+    }
+
+    function pruneExpiredEvents(list = []) {
+        if (!Array.isArray(list) || list.length === 0) {
+            return { events: [], removedCount: 0 };
+        }
+
+        const cutoffMs = Date.now() - (EVENT_RETENTION_PAST_DAYS * 24 * 60 * 60 * 1000);
+        const kept = [];
+        let removedCount = 0;
+
+        list.forEach((ev) => {
+            const endTs = getEventEndTimestampMs(ev);
+            if (Number.isFinite(endTs) && endTs < cutoffMs) {
+                removedCount += 1;
+                return;
+            }
+            kept.push(ev);
+        });
+
+        return { events: kept, removedCount };
+    }
+
+    async function applyEventSanitizationAndPersist(source = 'local') {
+        const normalized = eventsCache.map(normalizeEventRecord);
+        const { events: sanitized, removedCount } = pruneExpiredEvents(normalized);
+        eventsCache = sanitized;
+        if (!removedCount) return;
+
+        if (hasNativeStore && window.appBridge?.saveEvents) {
+            try {
+                await window.appBridge.saveEvents(eventsCache);
+            } catch (e) {
+                console.warn('No se pudo persistir limpieza de eventos en store nativo', e);
+            }
+        }
+        saveEventsToLocal(eventsCache);
+        console.info(`Se eliminaron ${removedCount} evento(s) expirados (${source}).`);
+    }
+
     async function loadEventsFromStore() {
         if (hasNativeStore && window.appBridge?.getEvents) {
             try {
                 const nativeEvents = await window.appBridge.getEvents();
                 if (Array.isArray(nativeEvents) && nativeEvents.length) {
                     eventsCache = nativeEvents.map(normalizeEventRecord);
+                    await applyEventSanitizationAndPersist('native');
                     return;
                 }
                 // Migración inicial: si no hay datos en store nativo, usa localStorage si existe.
                 const legacy = loadEventsFromLocal();
                 eventsCache = legacy.map(normalizeEventRecord);
+                await applyEventSanitizationAndPersist('legacy');
                 await window.appBridge.saveEvents(eventsCache);
                 return;
             } catch (e) {
                 console.warn('No se pudo cargar store nativo, se usa localStorage', e);
                 eventsCache = loadEventsFromLocal().map(normalizeEventRecord);
+                await applyEventSanitizationAndPersist('local-fallback');
                 return;
             }
         }
         eventsCache = loadEventsFromLocal().map(normalizeEventRecord);
+        await applyEventSanitizationAndPersist('local-only');
     }
 
     function saveEvents(list) {
@@ -903,6 +980,19 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
                 <div class="week-day__events"></div>
             `;
 
+            const label = column.querySelector('.week-day__label');
+            const openDay = () => openDailyViewForDate(day);
+            if (label) {
+                label.setAttribute('role', 'button');
+                label.setAttribute('tabindex', '0');
+                label.addEventListener('click', openDay);
+                label.addEventListener('keydown', (event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    openDay();
+                });
+            }
+
             const list = column.querySelector('.week-day__events');
             if (!dayEvents.length) {
                 list.innerHTML = `<p class="muted">${tr('calendar.noEvents')}</p>`;
@@ -946,6 +1036,19 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
                 </div>
                 <div class="month-day__events"></div>
             `;
+
+            const header = cell.querySelector('.month-day__header');
+            const openDay = () => openDailyViewForDate(day);
+            if (header) {
+                header.setAttribute('role', 'button');
+                header.setAttribute('tabindex', '0');
+                header.addEventListener('click', openDay);
+                header.addEventListener('keydown', (event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    openDay();
+                });
+            }
 
             const list = cell.querySelector('.month-day__events');
             dayEvents.forEach(ev => {
@@ -1804,13 +1907,29 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
         try {
             const cfg = getAssistantConfig();
-            setAssistantStatus(tr('assistant.synthesizing'));
-            const result = await window.appBridge.synthesizeSpeech({
+            const selectedProvider = normalizeTtsProviderValue(assistantTtsProvider || cfg.ttsProvider || 'auto') || 'auto';
+            const synthPayload = {
                 text: speechText,
-                provider: assistantTtsProvider || cfg.ttsProvider || 'auto',
+                provider: selectedProvider,
                 language: getVoiceLang(assistantLocale),
                 format: 'mp3'
-            });
+            };
+
+            if (selectedProvider === 'openai') {
+                synthPayload.apiKey = String(cfg.openaiApiKey || '').trim();
+            } else if (selectedProvider === 'google') {
+                synthPayload.apiKey = String(cfg.googleApiKey || '').trim();
+            } else if (selectedProvider === 'fish') {
+                synthPayload.apiKey = String(cfg.fishApiKey || '').trim();
+            } else if (selectedProvider === 'elevenlabs') {
+                synthPayload.apiKey = String(cfg.androidTtsApiKey || '').trim();
+                synthPayload.apiUrl = String(cfg.androidTtsApiUrl || ASSISTANT_ANDROID_DEFAULT_TTS_API_URL).trim();
+                synthPayload.model = String(cfg.androidTtsModel || ASSISTANT_ANDROID_DEFAULT_TTS_MODEL).trim();
+                synthPayload.voice = String(cfg.androidTtsVoice || ASSISTANT_ANDROID_DEFAULT_TTS_VOICE).trim();
+            }
+
+            setAssistantStatus(tr('assistant.synthesizing'));
+            const result = await window.appBridge.synthesizeSpeech(synthPayload);
 
             const bytes = base64ToUint8Array(result?.audioBase64 || '');
             await playAssistantAudioBytes(bytes, result?.mimeType || 'audio/mpeg');
@@ -2053,11 +2172,12 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         modal.classList.remove('is-hidden');
         modal.querySelector('.modal__dialog')?.focus?.();
         setAssistantStatus(tr('assistant.scopeHint'));
-        if (!assistantMessages.length) {
+        if (shouldShowAssistantWelcome()) {
             appendAssistantMessage({
                 role: 'assistant',
                 content: assistantStrings.welcome
             });
+            markAssistantWelcomeSeen();
         }
         scrollAssistantBottom();
     }
@@ -2287,9 +2407,15 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         const t = normalizeLooseText(text);
         if (!t) return null;
 
-        const asksProvider = /(proveedor|provider|provedor)/.test(t) && /\btts\b/.test(t);
-        const asksApiKey = /(api key|apikey|key|clave)/.test(t) && /(tts|voz|voice|stt|proveedor|provider|deepseek|openai|google|elevenlabs)/.test(t);
-        const asksVoice = /(voz|voice|ttsvoice|ttsfemale|ttsmale)/.test(t) && /(cambiar|change|trocar|set|usar|use|comando|manual|como|como)/.test(t);
+        const asksProvider = (
+            /(proveedor|provider|provedor|motor)/.test(t)
+            && /(\btts\b|voz|voice|elevenlabs|openai|google)/.test(t)
+        ) || /(ttsprovider|\/ttsprovider)/.test(t);
+        const asksApiKey = /(api key|apikey|key|clave|token)/.test(t) && /(tts|voz|voice|stt|proveedor|provider|deepseek|openai|google|elevenlabs)/.test(t);
+        const asksVoice = (
+            /(voz|voice|ttsvoice|ttsfemale|ttsmale)/.test(t)
+            && /(cambiar|change|trocar|set|usar|use|comando|manual|como|how)/.test(t)
+        ) || /(\/ttsvoice|\/ttsfemale|\/ttsmale)/.test(t);
         const asksManualEvents = /(manual|formulario|editar|edito|edicion|edicion|agregar|anadir|añadir|crear|evento|evento manual|evento manualmente|edit event|add event)/.test(t)
             && /(manualmente|manual|formulario|pantalla|lista|calendario|editar|agregar|anadir|añadir|crear)/.test(t);
         const asksGeneralHelp = /(ayuda|help|manual|comandos|como usar|como se usa|que puedo preguntar|que puedes hacer|consulta)/.test(t);
@@ -2333,6 +2459,107 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         const topic = detectAssistantManualTopic(text);
         if (!topic) return '';
         return buildAssistantManualReply(topic);
+    }
+
+    function ttsSetupText(key, vars = {}) {
+        const lang = String(assistantLocale || 'es').slice(0, 2);
+        const dict = {
+            es: {
+                askProvider: 'Perfecto, te ayudo a cambiar el proveedor TTS. Proveedores disponibles: {{providers}}. ¿Cuál quieres usar?',
+                askApiKey: 'Genial, usaré {{provider}}. Ahora indícame la API key de ese proveedor.',
+                invalidProvider: 'No reconocí ese proveedor. Opciones válidas: {{providers}}.',
+                apiKeySaved: 'Listo ✅ Guardé la API key de {{provider}} y quedó como proveedor TTS activo.',
+                apiKeyMissing: 'No detecté una API key válida. Escríbela directamente o usa: /ttskey {{provider}} TU_API_KEY',
+                setupCancelled: 'Configuración TTS cancelada.',
+            },
+            en: {
+                askProvider: 'Great, I can help you change the TTS provider. Available providers: {{providers}}. Which one do you want?',
+                askApiKey: 'Great, I will use {{provider}}. Now please provide the API key for that provider.',
+                invalidProvider: 'I could not recognize that provider. Valid options: {{providers}}.',
+                apiKeySaved: 'Done ✅ I saved the API key for {{provider}} and set it as active TTS provider.',
+                apiKeyMissing: 'I could not detect a valid API key. Type it directly or use: /ttskey {{provider}} YOUR_API_KEY',
+                setupCancelled: 'TTS setup cancelled.',
+            },
+            pt: {
+                askProvider: 'Perfeito, te ajudo a trocar o provedor TTS. Provedores disponíveis: {{providers}}. Qual você quer usar?',
+                askApiKey: 'Ótimo, vou usar {{provider}}. Agora informe a API key desse provedor.',
+                invalidProvider: 'Não reconheci esse provedor. Opções válidas: {{providers}}.',
+                apiKeySaved: 'Pronto ✅ Salvei a API key de {{provider}} e defini como provedor TTS ativo.',
+                apiKeyMissing: 'Não detectei uma API key válida. Digite diretamente ou use: /ttskey {{provider}} SUA_API_KEY',
+                setupCancelled: 'Configuração de TTS cancelada.',
+            }
+        };
+        const template = (dict[lang] && dict[lang][key]) || dict.es[key] || key;
+        return Object.entries(vars).reduce((acc, [k, v]) => acc.replaceAll(`{{${k}}}`, String(v ?? '')), template);
+    }
+
+    function getTtsProviderListLabel() {
+        const list = Object.keys(ASSISTANT_TTS_PROVIDERS || {}).filter(Boolean);
+        return list.join(', ');
+    }
+
+    function extractProviderFromFreeText(text = '') {
+        const normalized = normalizeLooseText(text);
+        const tokens = normalized.split(' ').filter(Boolean);
+        for (const token of tokens) {
+            const provider = normalizeTtsProviderValue(token);
+            if (provider) return provider;
+        }
+        return normalizeTtsProviderValue(text);
+    }
+
+    function extractTtsApiKeyInput(text = '', preferredProvider = '') {
+        const raw = String(text || '').trim();
+        if (!raw) return { provider: '', key: '' };
+
+    const cmdMatch = raw.match(/^\/(?:ttskey|elevenlabs_key)\s+(?:(elevenlabs|fish|openai|google|11labs)\s+)?(.+)$/i);
+        if (cmdMatch) {
+            return {
+                provider: normalizeTtsProviderValue(cmdMatch[1] || preferredProvider),
+                key: String(cmdMatch[2] || '').trim(),
+            };
+        }
+
+    const sentenceMatch = raw.match(/(?:api\s*key|apikey|clave|token)(?:\s+es|\s*[:=])?\s*([A-Za-z0-9._-]{8,})/i);
+        if (sentenceMatch) {
+            return {
+                provider: normalizeTtsProviderValue(preferredProvider),
+                key: String(sentenceMatch[1] || '').trim(),
+            };
+        }
+
+        const plain = raw.replace(/^['"]|['"]$/g, '').trim();
+        if (plain.length >= 8 && !/\s/.test(plain)) {
+            return {
+                provider: normalizeTtsProviderValue(preferredProvider),
+                key: plain,
+            };
+        }
+
+        return { provider: normalizeTtsProviderValue(preferredProvider), key: '' };
+    }
+
+    function shouldStartTtsSetupFlow(text = '') {
+        if (!text || String(text).trim().startsWith('/')) return false;
+        return detectAssistantManualTopic(text) === 'tts-provider';
+    }
+
+    function shouldShowAssistantWelcome() {
+        if (!assistantMessages.length) return true;
+        try {
+            const current = String(localStorage.getItem(ASSISTANT_WELCOME_VERSION_KEY) || '').trim();
+            return current !== ASSISTANT_WELCOME_VERSION;
+        } catch (_e) {
+            return false;
+        }
+    }
+
+    function markAssistantWelcomeSeen() {
+        try {
+            localStorage.setItem(ASSISTANT_WELCOME_VERSION_KEY, ASSISTANT_WELCOME_VERSION);
+        } catch (_e) {
+            // no-op
+        }
     }
 
     function assistantShortText(key, vars = {}) {
@@ -2659,6 +2886,62 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         const text = assistantInput.value.trim();
         if (!text) return;
 
+        if (assistantPendingTtsSetup) {
+            appendAssistantMessage({ role: 'user', content: text });
+            assistantInput.value = '';
+
+            if (isAssistantCancelText(text)) {
+                assistantPendingTtsSetup = null;
+                const msg = ttsSetupText('setupCancelled');
+                appendAssistantMessage({ role: 'assistant', content: msg });
+                setAssistantStatus(msg);
+                await speakAssistantText(msg);
+                return;
+            }
+
+            if (assistantPendingTtsSetup.step === 'provider') {
+                const provider = extractProviderFromFreeText(text);
+                if (!provider) {
+                    const msg = ttsSetupText('invalidProvider', { providers: getTtsProviderListLabel() });
+                    appendAssistantMessage({ role: 'assistant', content: msg });
+                    setAssistantStatus(msg);
+                    await speakAssistantText(msg);
+                    return;
+                }
+
+                saveAssistantTtsProvider(provider);
+                assistantPendingTtsSetup = { step: 'apiKey', provider };
+                const msg = ttsSetupText('askApiKey', { provider });
+                appendAssistantMessage({ role: 'assistant', content: msg });
+                setAssistantStatus(msg);
+                await speakAssistantText(msg);
+                return;
+            }
+
+            if (assistantPendingTtsSetup.step === 'apiKey') {
+                const fallbackProvider = normalizeTtsProviderValue(assistantPendingTtsSetup.provider || assistantTtsProvider || 'elevenlabs') || 'elevenlabs';
+                const parsed = extractTtsApiKeyInput(text, fallbackProvider);
+                const provider = normalizeTtsProviderValue(parsed.provider || fallbackProvider) || fallbackProvider;
+                const key = saveApiKeyByProvider(provider, parsed.key);
+
+                if (!key) {
+                    const msg = ttsSetupText('apiKeyMissing', { provider });
+                    appendAssistantMessage({ role: 'assistant', content: msg });
+                    setAssistantStatus(msg);
+                    await speakAssistantText(msg);
+                    return;
+                }
+
+                saveAssistantTtsProvider(provider);
+                assistantPendingTtsSetup = null;
+                const msg = ttsSetupText('apiKeySaved', { provider });
+                appendAssistantMessage({ role: 'assistant', content: msg });
+                setAssistantStatus(msg);
+                await speakAssistantText(msg);
+                return;
+            }
+        }
+
         const apiKeyCmd = text.match(/^\/(?:apikey|api_key)\s+(.+)$/i);
         if (apiKeyCmd) {
             const key = saveAndroidAssistantApiKey(apiKeyCmd[1]);
@@ -2673,16 +2956,18 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             const cfg = getAssistantConfig();
             const selectedProvider = normalizeTtsProviderValue(cfg.ttsProvider || 'elevenlabs') || 'elevenlabs';
             const key = saveApiKeyByProvider(selectedProvider, ttsApiKeyCmd[1]);
+            if (key && assistantPendingTtsSetup?.step === 'apiKey') assistantPendingTtsSetup = null;
             assistantInput.value = '';
             appendAssistantMessage({ role: 'assistant', content: key ? tr('assistant.ttsApiKeySaved') : tr('assistant.ttsApiKeyMissing') });
             setAssistantStatus(key ? tr('assistant.ttsApiKeySaved') : tr('assistant.ttsApiKeyMissing'));
             return;
         }
 
-        const ttsApiKeyProviderCmd = text.match(/^\/(?:ttskey|elevenlabs_key)\s+(elevenlabs|openai|google|11labs)\s+(.+)$/i);
+    const ttsApiKeyProviderCmd = text.match(/^\/(?:ttskey|elevenlabs_key)\s+(elevenlabs|fish|openai|google|11labs)\s+(.+)$/i);
         if (ttsApiKeyProviderCmd) {
             const provider = normalizeTtsProviderValue(ttsApiKeyProviderCmd[1]);
             const key = saveApiKeyByProvider(provider, ttsApiKeyProviderCmd[2]);
+            if (key && assistantPendingTtsSetup?.step === 'apiKey') assistantPendingTtsSetup = null;
             assistantInput.value = '';
             const msg = key
                 ? tr('assistant.ttsApiKeySavedProvider', { provider })
@@ -2695,6 +2980,9 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         const ttsProviderCmd = text.match(/^\/(?:ttsprovider)\s+(.+)$/i);
         if (ttsProviderCmd) {
             const provider = saveAssistantTtsProvider(ttsProviderCmd[1]);
+            if (provider) {
+                assistantPendingTtsSetup = { step: 'apiKey', provider };
+            }
             assistantInput.value = '';
             const msg = provider
                 ? tr('assistant.ttsProviderSaved', { provider })
@@ -2787,6 +3075,27 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
         appendAssistantMessage({ role: 'user', content: text });
         assistantInput.value = '';
+
+        if (shouldStartTtsSetupFlow(text)) {
+            const provider = extractProviderFromFreeText(text);
+            let msg = '';
+
+            if (provider) {
+                saveAssistantTtsProvider(provider);
+                assistantPendingTtsSetup = { step: 'apiKey', provider };
+                msg = ttsSetupText('askApiKey', { provider });
+            } else {
+                assistantPendingTtsSetup = { step: 'provider' };
+                msg = ttsSetupText('askProvider', { providers: getTtsProviderListLabel() });
+            }
+
+            appendAssistantMessage({ role: 'assistant', content: msg });
+            setAssistantStatus(msg);
+            await speakAssistantText(msg);
+            setAssistantBusy(false);
+            scrollAssistantBottom();
+            return;
+        }
 
         const localManualHelp = getAssistantManualHelp(text);
         if (localManualHelp) {
