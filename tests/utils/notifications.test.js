@@ -234,29 +234,96 @@ describe('notifications helpers', () => {
     expect(enMale?.sound).toBe('m_evento_en');
   });
 
-  it('repite alerta solo 3 veces y luego se detiene', () => {
+  it('repite alerta 3 veces con pausas de 10s cuando hay audio y mantiene alerta visual activa', async () => {
     vi.useFakeTimers();
 
     const notifier = new Notifier();
     const event = { id: 'ev-repeat', title: 'Demo', date: '2026-05-04', start: '09:00', end: '10:00' };
 
-    const playSpy = vi.spyOn(notifier, '_playAlertSound').mockImplementation(() => {
-      notifier.activeAudio = null;
-    });
+    const playSpy = vi.spyOn(notifier, '_playAlertSound').mockResolvedValue(true);
     vi.spyOn(notifier, '_tryVibrate').mockImplementation(() => {});
     vi.spyOn(notifier, '_showAlertModal').mockImplementation(() => {});
 
     notifier._startAlertLoop(event, 30);
+    await Promise.resolve();
     expect(playSpy).toHaveBeenCalledTimes(1);
+    expect(notifier.activeAlert).not.toBeNull();
 
-    vi.advanceTimersByTime(3000);
+    vi.advanceTimersByTime(10_000);
+    await Promise.resolve();
     expect(playSpy).toHaveBeenCalledTimes(2);
+    expect(notifier.activeAlert).not.toBeNull();
 
-    vi.advanceTimersByTime(3000);
+    vi.advanceTimersByTime(10_000);
+    await Promise.resolve();
     expect(playSpy).toHaveBeenCalledTimes(3);
+    expect(notifier.activeAlert).not.toBeNull();
 
-    vi.advanceTimersByTime(3000);
+    vi.advanceTimersByTime(10_000);
+    await Promise.resolve();
     expect(playSpy).toHaveBeenCalledTimes(3);
+    expect(notifier.activeAlert).not.toBeNull();
+
+    notifier._stopActiveAlert();
+    expect(notifier.activeAlert).toBeNull();
+
+    vi.useRealTimers();
+  });
+
+  it('en modo silencioso mantiene ráfagas con pausa de 30s en loop de 5 y alerta visual persistente', async () => {
+    vi.useFakeTimers();
+
+    const notifier = new Notifier();
+    const event = { id: 'ev-silent', title: 'Demo silent', date: '2026-05-04', start: '09:00', end: '10:00' };
+
+    const playSpy = vi.spyOn(notifier, '_playAlertSound').mockResolvedValue(false);
+    const vibrateSpy = vi.spyOn(notifier, '_tryVibrate').mockImplementation(() => {});
+    vi.spyOn(notifier, '_showAlertModal').mockImplementation(() => {});
+
+    notifier._startAlertLoop(event, 30);
+    await Promise.resolve();
+    expect(playSpy).toHaveBeenCalledTimes(1);
+    expect(vibrateSpy).toHaveBeenCalledTimes(1);
+    expect(notifier.activeAlert?.silentMode).toBe(true);
+    expect(notifier.activeAlert?.pauseMs).toBe(30_000);
+    expect(notifier.activeAlert).not.toBeNull();
+
+    vi.advanceTimersByTime(10_000);
+    await Promise.resolve();
+    expect(playSpy).toHaveBeenCalledTimes(1);
+    expect(vibrateSpy).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(20_000);
+    await Promise.resolve();
+    expect(playSpy).toHaveBeenCalledTimes(2);
+    expect(vibrateSpy).toHaveBeenCalledTimes(2);
+    expect(notifier.activeAlert).not.toBeNull();
+
+    vi.advanceTimersByTime(30_000);
+    await Promise.resolve();
+    expect(playSpy).toHaveBeenCalledTimes(3);
+    expect(vibrateSpy).toHaveBeenCalledTimes(3);
+    expect(notifier.activeAlert).not.toBeNull();
+
+  vi.advanceTimersByTime(30_000);
+  await Promise.resolve();
+  expect(playSpy).toHaveBeenCalledTimes(4);
+  expect(vibrateSpy).toHaveBeenCalledTimes(4);
+  expect(notifier.activeAlert).not.toBeNull();
+
+  vi.advanceTimersByTime(30_000);
+  await Promise.resolve();
+  expect(playSpy).toHaveBeenCalledTimes(5);
+  expect(vibrateSpy).toHaveBeenCalledTimes(5);
+  expect(notifier.activeAlert).not.toBeNull();
+
+  vi.advanceTimersByTime(30_000);
+  await Promise.resolve();
+  expect(playSpy).toHaveBeenCalledTimes(5);
+  expect(vibrateSpy).toHaveBeenCalledTimes(5);
+  expect(notifier.activeAlert).not.toBeNull();
+
+    notifier._stopActiveAlert();
     expect(notifier.activeAlert).toBeNull();
 
     vi.useRealTimers();
@@ -296,6 +363,115 @@ describe('notifications helpers', () => {
     expect(payload.sound).toBe('m_evento_pt.mp3');
 
     globalThis.localStorage = originalStorage;
+  });
+
+  it('usa audios masculinos correctos para recordatorios nativos de 15/30 en ES, PT y EN', () => {
+    const notifier = new Notifier();
+    const plugin = { schedule: vi.fn().mockResolvedValue(undefined) };
+
+    const originalStorage = globalThis.localStorage;
+    globalThis.localStorage = {
+      getItem: vi.fn((key) => {
+        if (key === 'coordinalia-config') return JSON.stringify({ ttsGender: 'masculine' });
+        return '';
+      }),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+      clear: vi.fn(),
+      key: vi.fn(),
+      length: 0,
+    };
+
+    const fireAt = Date.now() + 60_000;
+    const event = {
+      id: 'ev-default-male-audio',
+      title: 'Evento por voz',
+      date: '2026-05-09',
+      start: '10:00',
+      end: '11:00',
+    };
+
+    notifier.setLocale('es');
+    notifier._scheduleNativeNotification(event, 15, fireAt, plugin);
+    notifier._scheduleNativeNotification(event, 30, fireAt, plugin);
+
+    notifier.setLocale('pt-BR');
+    notifier._scheduleNativeNotification(event, 15, fireAt, plugin);
+    notifier._scheduleNativeNotification(event, 30, fireAt, plugin);
+
+    notifier.setLocale('en-US');
+    notifier._scheduleNativeNotification(event, 15, fireAt, plugin);
+    notifier._scheduleNativeNotification(event, 30, fireAt, plugin);
+
+    const sounds = plugin.schedule.mock.calls
+      .map((call) => call?.[0]?.notifications?.[0]?.sound)
+      .filter(Boolean);
+
+    expect(sounds).toContain('m_evento_15_es.mp3');
+    expect(sounds).toContain('m_evento_30_es.mp3');
+    expect(sounds).toContain('m_evento_15_pt.mp3');
+    expect(sounds).toContain('m_evento_30_pt.mp3');
+    expect(sounds).toContain('m_evento_15_en.mp3');
+    expect(sounds).toContain('m_evento_30_en.mp3');
+
+    globalThis.localStorage = originalStorage;
+  });
+
+  it('emite evento visible con el audio/canal elegido al programar notificación nativa', () => {
+    const notifier = new Notifier();
+    notifier.setLocale('pt-BR');
+
+    const plugin = { schedule: vi.fn().mockResolvedValue(undefined) };
+    const fireAt = Date.now() + 60_000;
+
+    const originalStorage = globalThis.localStorage;
+    const originalWindow = globalThis.window;
+    const originalCustomEvent = globalThis.CustomEvent;
+
+    const dispatched = [];
+    globalThis.window = {
+      dispatchEvent: vi.fn((evt) => {
+        dispatched.push(evt);
+        return true;
+      }),
+    };
+    globalThis.CustomEvent = class {
+      constructor(type, init = {}) {
+        this.type = type;
+        this.detail = init.detail;
+      }
+    };
+
+    globalThis.localStorage = {
+      getItem: vi.fn((key) => {
+        if (key === 'coordinalia-config') return JSON.stringify({ ttsGender: 'masculine' });
+        return '';
+      }),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+      clear: vi.fn(),
+      key: vi.fn(),
+      length: 0,
+    };
+
+    notifier._scheduleNativeNotification({
+      id: 'ev-debug-audio',
+      title: 'Evento debug',
+      date: '2026-05-09',
+      start: '10:00',
+      end: '11:00',
+    }, 30, fireAt, plugin);
+
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0]?.type).toBe('agenda:notification-audio-selected');
+    expect(dispatched[0]?.detail?.locale).toBe('pt');
+    expect(dispatched[0]?.detail?.ttsGender).toBe('masculine');
+    expect(dispatched[0]?.detail?.sound).toBe('m_evento_30_pt.mp3');
+    expect(dispatched[0]?.detail?.channelId).toContain('agenda_reminder_30m_pt_m');
+
+    globalThis.localStorage = originalStorage;
+    globalThis.window = originalWindow;
+    globalThis.CustomEvent = originalCustomEvent;
   });
 
   it('migra canales Android legacy cuando cambia schema y evita borrado repetido luego', async () => {

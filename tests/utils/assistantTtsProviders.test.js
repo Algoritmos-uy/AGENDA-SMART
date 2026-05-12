@@ -31,25 +31,34 @@ describe('assistant TTS providers', () => {
   });
 
   it('usa fish con endpoint /audio/speech cuando se define provider fish', async () => {
-    const fakeAudio = new Uint8Array([1, 2, 3, 4]);
-    const fetchMock = vi.fn().mockResolvedValue(new Response(fakeAudio, {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
       status: 200,
-      headers: { 'content-type': 'audio/mpeg' },
-    }));
-    vi.stubGlobal('fetch', fetchMock);
+      headers: { get: () => 'audio/mpeg' },
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      text: async () => '',
+    });
+    global.fetch = fetchMock;
 
-    const out = await assistant.synthesizeSpeech(
-      { text: 'Hola mundo', language: 'es' },
-      { provider: 'fish', apiKey: 'fish-key', apiUrl: 'https://fish.example/v1' }
-    );
+    const out = await assistant.synthesizeSpeech({
+      provider: 'fish',
+      text: 'hola mundo',
+      apiKey: 'fish-key',
+      apiUrl: 'https://fish.example/v1',
+      model: 's2-pro',
+      voice: 'fish-male-voice-id',
+      format: 'mp3',
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [endpoint, req] = fetchMock.mock.calls[0];
     expect(String(endpoint)).toBe('https://fish.example/v1/audio/speech');
     expect(req?.headers?.Authorization).toBe('Bearer fish-key');
-    expect(out.provider).toBe('fish');
-    expect(out.mimeType).toBe('audio/mpeg');
-    expect(out.audioBase64).toBeTruthy();
+    const payload = JSON.parse(String(req?.body || '{}'));
+    expect(payload.model).toBe('s2-pro');
+    expect(payload.voice || payload.voice_id).toBe('fish-male-voice-id');
+    expect(out?.audioBase64).toBeTruthy();
+    expect(out?.provider).toBe('fish');
   });
 
   it('lanza NO_TTS_API_KEY cuando fish es seleccionado sin key disponible', async () => {

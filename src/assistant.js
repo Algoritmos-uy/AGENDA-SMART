@@ -489,7 +489,93 @@ function decodeAudioFromJson(data = {}) {
   };
 }
 
-async function synthesizeSpeech(payload = {}, options = {}) {
+function normalizeFishBaseUrl(raw = '') {
+  return String(raw || '').trim().replace(/\/+$/, '');
+}
+
+function buildFishUrlCandidates(apiUrl = '') {
+  const base = normalizeFishBaseUrl(
+    apiUrl || process.env.FISH_API_URL || process.env.FISH_TTS_API_URL || ''
+  );
+  if (!base) return [];
+  if (/\/v1\/tts$/i.test(base))
+    return [base, base.replace(/\/v1\/tts$/i, '/audio/speech')];
+  if (/\/audio\/speech$/i.test(base))
+    return [base, base.replace(/\/audio\/speech$/i, '/v1/tts')];
+  return [`${base}/audio/speech`, `${base}/v1/tts`];
+}
+
+function buildFishPayload(endpoint, { text, model, voice, format }) {
+  if (/\/v1\/tts$/i.test(endpoint)) {
+    return {
+      text: String(text || ''),
+      format: String(format || 'mp3'),
+      temperature: 0.8,
+      top_p: 0.8,
+      streaming: false,
+      ...(voice ? { reference_id: String(voice) } : { reference_id: FISH_TTS_VOICE }),
+    };
+  }
+  return {
+    model: String(model || FISH_TTS_MODEL),
+    input: String(text || ''),
+    text: String(text || ''),
+    voice: String(voice || FISH_TTS_VOICE),
+    voice_id: String(voice || FISH_TTS_VOICE),
+    format: String(format || 'mp3'),
+    response_format: String(format || 'mp3'),
+  };
+}
+
+async function synthesizeFishTtsDual({ text, apiKey, apiUrl, model, voice, format = 'mp3' }) {
+  const candidates = buildFishUrlCandidates(apiUrl);
+  if (!candidates.length) {
+    const err = new Error('FISH_API_URL_MISSING');
+    err.code = 'FISH_API_URL_MISSING';
+    throw err;
+  }
+
+  let lastError = null;
+  for (const endpoint of candidates) {
+    try {
+      const body = buildFishPayload(endpoint, { text, model, voice, format });
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          Accept: 'audio/mpeg,audio/*,*/*',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const raw = await res.text().catch(() => '');
+        const err = new Error(`Fish TTS ${res.status}: ${raw}`);
+        err.status = res.status;
+        if ([400, 404, 405, 415, 422].includes(res.status)) {
+          lastError = err;
+          continue;
+        }
+        throw err;
+      }
+
+      const arr = new Uint8Array(await res.arrayBuffer());
+      if (!arr?.length) throw new Error('EMPTY_TTS_AUDIO');
+
+      return {
+        audioBase64: Buffer.from(arr).toString('base64'),
+        mimeType: res.headers.get('content-type') || 'audio/mpeg',
+        provider: 'fish',
+      };
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError || new Error('FISH_TTS_FAILED');
+}
+
+async function synthesizeSpeech(payload = {}) {
   const { text = '', language = 'es', voice, format = 'mp3' } = payload;
   const cleanText = String(text || '').trim();
   if (!cleanText) {
@@ -498,7 +584,14 @@ async function synthesizeSpeech(payload = {}, options = {}) {
     throw err;
   }
 
-  const providers = resolveTtsProviders(options);
+  // 'options' ahora es el mismo payload, corrigiendo el no-undef
+  const options = payload;
+
+  const providers = resolveTtsProviders({
+    provider: options.provider || options.ttsProvider,
+    apiKey: options.apiKey,
+  });
+
   void language;
   const errors = [];
 
@@ -515,10 +608,6 @@ async function synthesizeSpeech(payload = {}, options = {}) {
         const voiceId = voice || ELEVENLABS_DEFAULT_VOICE;
         const outputFormat = format === 'mp3' ? ELEVENLABS_DEFAULT_OUTPUT : format;
         const endpoint = `${joinUrl(ELEVENLABS_TTS_URL, `/${voiceId}`)}?output_format=${encodeURIComponent(outputFormat)}`;
-        const body = {
-          text: cleanText,
-          model_id: ELEVENLABS_TTS_MODEL,
-        };
         res = await fetch(endpoint, {
           method: 'POST',
           headers: {
@@ -526,7 +615,7 @@ async function synthesizeSpeech(payload = {}, options = {}) {
             Accept: 'audio/mpeg',
             'xi-api-key': elevenlabsKey,
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ text: cleanText, model_id: ELEVENLABS_TTS_MODEL }),
         });
       } else if (provider === 'openai') {
         const apiKey = String(options.apiKey || process.env.OPENAI_API_KEY || '').trim();
@@ -543,42 +632,25 @@ async function synthesizeSpeech(payload = {}, options = {}) {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${apiKey}`,
           },
-          body: JSON.stringify({
-            model,
-            input: cleanText,
-            voice: voiceId,
-            format: format === 'mp3' ? 'mp3' : format,
-          }),
+          body: JSON.stringify({ model, input: cleanText, voice: voiceId, format }),
         });
       } else if (provider === 'fish') {
         const apiKey = String(options.apiKey || process.env.FISH_API_KEY || '').trim();
         if (!apiKey) {
-          const err = new Error('Falta FISH_API_KEY para TTS');
+          const err = new Error('NO_TTS_API_KEY');
           err.code = 'NO_TTS_API_KEY';
           throw err;
         }
-        const endpoint = resolveFishTtsUrl(String(options.apiUrl || process.env.FISH_TTS_API_URL || process.env.FISH_API_URL || FISH_TTS_URL || FISH_API_URL).trim());
-        if (!endpoint) {
-          const err = new Error('Falta FISH_API_URL/FISH_TTS_API_URL para TTS');
-          err.code = 'NO_TTS_API_URL';
-          throw err;
-        }
-        const model = String(options.model || process.env.FISH_TTS_MODEL || FISH_TTS_MODEL).trim();
-        const voiceId = String(voice || options.voice || process.env.FISH_TTS_VOICE || FISH_TTS_VOICE).trim();
-        res = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model,
-            input: cleanText,
-            voice: voiceId,
-            format: format === 'mp3' ? 'mp3' : format,
-            response_format: format === 'mp3' ? 'mp3' : format,
-          }),
+        // Si fish falla con provider explícito, propaga el error sin fallback
+        const fishResult = await synthesizeFishTtsDual({
+          text: cleanText,
+          apiKey,
+          apiUrl: String(options.apiUrl || process.env.FISH_API_URL || process.env.FISH_TTS_API_URL || '').trim(),
+          model: options.model,
+          voice: voice || options.voice || options.voice_id,
+          format,
         });
+        return fishResult;
       } else if (provider === 'google') {
         const apiKey = String(options.apiKey || process.env.GOOGLE_SPEECH_API_KEY || process.env.GOOGLE_API_KEY || '').trim();
         if (!apiKey) {
@@ -590,18 +662,11 @@ async function synthesizeSpeech(payload = {}, options = {}) {
         const endpoint = `${String(options.apiUrl || GOOGLE_TTS_URL).trim()}?key=${encodeURIComponent(apiKey)}`;
         res = await fetch(endpoint, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             input: { text: cleanText },
-            voice: {
-              languageCode: langCode,
-              ssmlGender: 'FEMALE',
-            },
-            audioConfig: {
-              audioEncoding: 'MP3',
-            },
+            voice: { languageCode: langCode, ssmlGender: 'FEMALE' },
+            audioConfig: { audioEncoding: 'MP3' },
           }),
         });
       } else if (provider === 'gemini') {
@@ -617,20 +682,12 @@ async function synthesizeSpeech(payload = {}, options = {}) {
         const endpoint = `${endpointBase}${endpointBase.includes('?') ? '&' : '?'}key=${encodeURIComponent(apiKey)}`;
         res = await fetch(endpoint, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: cleanText }] }],
             generationConfig: {
               responseModalities: ['AUDIO'],
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: {
-                    voiceName,
-                  },
-                },
-              },
+              speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } },
             },
           }),
         });

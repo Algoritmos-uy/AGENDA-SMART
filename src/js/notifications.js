@@ -3,9 +3,10 @@ import { normalizeLocale } from './utils/agendaDateUtils.js';
 import { t } from './utils/i18n.js';
 
 const MAX_DAYS_AHEAD = 365;         // Límite de programación futura
-const ALERT_LOOP_INTERVAL_MS = 3000;
 const ALERT_MAX_REPEATS = 3;
-const ALERT_AUTO_STOP_MS = 3 * 60 * 1000;
+const ALERT_SILENT_MAX_REPEATS = 5;
+const ALERT_REPEAT_PAUSE_MS = 10 * 1000;
+const ALERT_SILENT_REPEAT_PAUSE_MS = 30 * 1000;
 const ALERT_SNOOZE_MS = 2 * 60 * 1000;
 const DEFAULT_REMINDER_OFFSETS_S = [900, 1800]; // 15 y 30 min por defecto
 const ASSISTANT_CONFIG_KEY = 'coordinalia-config';
@@ -19,7 +20,7 @@ const ALERT_AUDIO_BASE_BY_MINUTES = new Map([
   [30, '30'],
 ]);
 
-const ALERT_VIBRATE_PATTERN = [250, 150, 250];
+const ALERT_VIBRATE_PATTERN = [250, 120, 250, 120, 250];
 const ANDROID_NOTIFICATION_CHANNELS = {
   '30:es:feminine': { id: 'agenda_reminder_30m_es_f_v2', name: 'Recordatorios 30 min',  sound: 'evento_30'      },
   '30:en:feminine': { id: 'agenda_reminder_30m_en_f_v2', name: '30 min Reminders',      sound: 'evento_30_en'   },
@@ -255,7 +256,6 @@ export class Notifier {
   this.locale = normalizeLocale(globalThis?.navigator?.language || 'es');
     this.activeAlert = null;
     this.alertLoopTimer = null;
-    this.alertAutoStopTimer = null;
     this.alertModalEl = null;
     this.activeAudio = null;
     this.nativeIds = new Map();
@@ -519,50 +519,54 @@ export class Notifier {
     if (this.activeAlert && this.activeAlert.key !== alertKey) return;
     if (this.activeAlert?.key === alertKey) return;
 
-    this.activeAlert = { key: alertKey, event, minutesBefore, playCount: 0 };
+    this.activeAlert = {
+      key: alertKey,
+      event,
+      minutesBefore,
+      playCount: 0,
+      silentMode: false,
+      pauseMs: ALERT_REPEAT_PAUSE_MS,
+    };
 
     this._showAlertModal(event, minutesBefore);
 
-    const runOnePlayback = () => {
+    const runOnePlayback = async () => {
+      const maxRepeats = this.activeAlert?.silentMode ? ALERT_SILENT_MAX_REPEATS : ALERT_MAX_REPEATS;
       if (!this.activeAlert || this.activeAlert.key !== alertKey) return;
-      if (this.activeAlert.playCount >= ALERT_MAX_REPEATS) return;
+      if (this.activeAlert.playCount >= maxRepeats) return;
       this.activeAlert.playCount += 1;
-      this._playAlertSound(event, minutesBefore, { loop: false });
-      this._tryVibrate();
-    };
-
-    runOnePlayback();
-
-    this.alertLoopTimer = globalThis.setInterval(() => {
+      const hasAudibleAlert = await this._playAlertSound(event, minutesBefore, { loop: false });
       if (!this.activeAlert || this.activeAlert.key !== alertKey) return;
 
-      const isPlaying = this._isAudioPlaybackActive(this.activeAudio);
-      if (this.activeAlert.playCount >= ALERT_MAX_REPEATS) {
-        if (!isPlaying) {
-          this._stopActiveAlert();
-        }
+      if (!hasAudibleAlert) {
+        this.activeAlert.silentMode = true;
+        this.activeAlert.pauseMs = ALERT_SILENT_REPEAT_PAUSE_MS;
+      } else {
+        this.activeAlert.silentMode = false;
+        this.activeAlert.pauseMs = ALERT_REPEAT_PAUSE_MS;
+      }
+
+      this._tryVibrate();
+
+      const updatedMaxRepeats = this.activeAlert.silentMode ? ALERT_SILENT_MAX_REPEATS : ALERT_MAX_REPEATS;
+      if (!this.activeAlert || this.activeAlert.key !== alertKey) return;
+      if (this.activeAlert.playCount >= updatedMaxRepeats) {
+        this.alertLoopTimer = null;
         return;
       }
 
-      if (!isPlaying) {
-        this.activeAudio = null;
-        runOnePlayback();
-      }
-    }, ALERT_LOOP_INTERVAL_MS);
+      this.alertLoopTimer = globalThis.setTimeout(() => {
+        void runOnePlayback();
+      }, this.activeAlert.pauseMs || ALERT_REPEAT_PAUSE_MS);
+    };
 
-    this.alertAutoStopTimer = globalThis.setTimeout(() => {
-      this._stopActiveAlert();
-    }, ALERT_AUTO_STOP_MS);
+    void runOnePlayback();
   }
 
   _stopActiveAlert() {
     if (this.alertLoopTimer) {
-      clearInterval(this.alertLoopTimer);
+      clearTimeout(this.alertLoopTimer);
       this.alertLoopTimer = null;
-    }
-    if (this.alertAutoStopTimer) {
-      clearTimeout(this.alertAutoStopTimer);
-      this.alertAutoStopTimer = null;
     }
     if (this.alertModalEl?.parentNode) {
       this.alertModalEl.parentNode.removeChild(this.alertModalEl);
@@ -723,15 +727,6 @@ export class Notifier {
     };
   }
 
-  _isAudioPlaybackActive(audio = null) {
-    if (!audio) return false;
-    if (audio.paused || audio.ended) return false;
-    if (Number.isFinite(audio.duration) && Number.isFinite(audio.currentTime) && audio.duration > 0) {
-      return audio.currentTime < (audio.duration - 0.05);
-    }
-    return true;
-  }
-
   _rememberHandledNativeNotificationId(notificationId = null) {
     if (!Number.isFinite(notificationId) || notificationId <= 0) return;
     this.handledNativeNotificationIds.add(notificationId);
@@ -885,6 +880,23 @@ export class Notifier {
       minutesBefore,
     });
 
+    try {
+      if (globalThis?.window && typeof globalThis.window.dispatchEvent === 'function' && typeof globalThis.CustomEvent === 'function') {
+        globalThis.window.dispatchEvent(new globalThis.CustomEvent('agenda:notification-audio-selected', {
+          detail: {
+            eventId: String(event.id || ''),
+            minutesBefore,
+            locale: normalizeLocale(this.locale || 'es'),
+            ttsGender,
+            channelId: String(channel.id || ''),
+            sound: `${channel.sound}.mp3`,
+          },
+        }));
+      }
+    } catch (_e) {
+      // no-op
+    }
+
     localNotifications.schedule({
       notifications: [{
         id,
@@ -950,65 +962,79 @@ export class Notifier {
       ? getAudioCandidates(audioBase, this.locale, ttsGender)
       : getAudioCandidates('generic', this.locale, ttsGender);
 
-    if (!Array.isArray(paths) || paths.length === 0) {
-      console.warn('No hay rutas de audio para alerta; se usará TTS de fallback.', { minutesBefore, locale: this.locale, ttsGender });
-      this._playAlertSpeech(event, minutesBefore);
-      return;
-    }
+    return new Promise((resolve) => {
+      let resolved = false;
+      const settle = (value) => {
+        if (resolved) return;
+        resolved = true;
+        resolve(!!value);
+      };
 
-    const tryPlay = (index = 0) => {
-      if (index >= paths.length) {
-        console.warn('No se pudo reproducir ningún archivo de alerta; se usará TTS de fallback.', { minutesBefore, locale: this.locale, ttsGender });
-        this._playAlertSpeech(event, minutesBefore);
+      if (!Array.isArray(paths) || paths.length === 0) {
+        console.warn('No hay rutas de audio para alerta; se usará TTS de fallback.', { minutesBefore, locale: this.locale, ttsGender });
+        settle(this._playAlertSpeech(event, minutesBefore));
         return;
       }
 
-      if (this.activeAudio && !this.activeAudio.paused) {
-        return;
-      }
-
-      const audio = new Audio(paths[index]);
-      audio.preload = 'auto';
-      audio.loop = false;
-
-      const replay = () => {
-        if (!shouldLoop) {
-          if (this.activeAudio === audio) this.activeAudio = null;
+      const tryPlay = (index = 0) => {
+        if (index >= paths.length) {
+          console.warn('No se pudo reproducir ningún archivo de alerta; se usará TTS de fallback.', { minutesBefore, locale: this.locale, ttsGender });
+          settle(this._playAlertSpeech(event, minutesBefore));
           return;
         }
-        if (!this.activeAlert || this.activeAudio !== audio) return;
-        try {
-          audio.currentTime = 0;
-          audio.play().catch(() => {
-            if (this.activeAudio === audio) this.activeAudio = null;
-          });
-        } catch (_e) {
-          if (this.activeAudio === audio) this.activeAudio = null;
+
+        if (this.activeAudio && !this.activeAudio.paused) {
+          settle(true);
+          return;
         }
+
+        const audio = new Audio(paths[index]);
+        audio.preload = 'auto';
+        audio.loop = false;
+
+        const replay = () => {
+          if (!shouldLoop) {
+            if (this.activeAudio === audio) this.activeAudio = null;
+            return;
+          }
+          if (!this.activeAlert || this.activeAudio !== audio) return;
+          try {
+            audio.currentTime = 0;
+            audio.play().catch(() => {
+              if (this.activeAudio === audio) this.activeAudio = null;
+            });
+          } catch (_e) {
+            if (this.activeAudio === audio) this.activeAudio = null;
+          }
+        };
+
+        audio.onended = () => {
+          replay();
+        };
+        audio.onerror = () => {
+          console.warn('Error cargando audio de alerta, probando fallback.', { path: paths[index], minutesBefore, locale: this.locale, ttsGender });
+          if (this.activeAudio === audio) this.activeAudio = null;
+          tryPlay(index + 1);
+        };
+        audio.onpause = () => {
+          if (!this.activeAlert) return;
+          if (this.activeAudio !== audio) return;
+          if (audio.ended) return;
+          this.activeAudio = null;
+        };
+        this.activeAudio = audio;
+        audio.play()
+          .then(() => {
+            settle(true);
+          })
+          .catch((err) => {
+            console.warn('No se pudo reproducir audio de alerta, probando fallback.', { path: paths[index], minutesBefore, locale: this.locale, ttsGender, error: String(err?.message || err || '') });
+            if (this.activeAudio === audio) this.activeAudio = null;
+            tryPlay(index + 1);
+          });
       };
 
-      audio.onended = () => {
-        replay();
-      };
-      audio.onerror = () => {
-        console.warn('Error cargando audio de alerta, probando fallback.', { path: paths[index], minutesBefore, locale: this.locale, ttsGender });
-        if (this.activeAudio === audio) this.activeAudio = null;
-        tryPlay(index + 1);
-      };
-      audio.onpause = () => {
-        if (!this.activeAlert) return;
-        if (this.activeAudio !== audio) return;
-        if (audio.ended) return;
-        this.activeAudio = null;
-      };
-      this.activeAudio = audio;
-      audio.play().catch((err) => {
-        console.warn('No se pudo reproducir audio de alerta, probando fallback.', { path: paths[index], minutesBefore, locale: this.locale, ttsGender, error: String(err?.message || err || '') });
-        if (this.activeAudio === audio) this.activeAudio = null;
-        tryPlay(index + 1);
-      });
-    };
-
-    tryPlay(0);
+      tryPlay(0);
+    });
   }
 }
