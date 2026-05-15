@@ -1,5 +1,24 @@
 import { Notifier } from './notifications.js';
 import {
+    isAssistantCancelText,
+    isAssistantConfirmText,
+    normalizeLooseText,
+    parseAssistantDateHint,
+    parseAssistantTimeHint,
+    stripLeadingCommandWords,
+    titleMatchesLoose
+} from './utils/assistantParserUtils.js';
+
+
+import {
+    extractProviderFromFreeText,
+    extractTtsApiKeyInput,
+    getTtsProviderListLabel,
+    normalizeSttProviderValue,
+    normalizeTtsProviderValue
+} from './utils/assistantTtsUtils.js';
+
+import {
     addDays,
     addMonths,
     buildSlots,
@@ -163,6 +182,9 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     const ASSISTANT_TTS_GENDER_KEY = 'coordinalia-tts-gender';
     const ASSISTANT_ANDROID_DEFAULT_TTS_API_URL = 'https://api.elevenlabs.io/v1';
     const ASSISTANT_ANDROID_DEFAULT_TTS_MODEL = 'eleven_v3';
+    const ASSISTANT_ANDROID_LOCAL_MALE_TTS_VOICE = 'es-us-x-sfb-local';
+    // opcional: define una femenina local si la conoces; vacío = autoselección del motor
+    const ASSISTANT_ANDROID_LOCAL_FEMALE_TTS_VOICE = 'es-us-x-sfg-local';
     const ASSISTANT_ANDROID_DEFAULT_TTS_VOICE = 'EXAVITQu4vr4xnSDxMaL';
     const ASSISTANT_ANDROID_FEMALE_TTS_VOICE = 'EXAVITQu4vr4xnSDxMaL';
     const ASSISTANT_ANDROID_MALE_TTS_VOICE = '452WrNT9o8dphaYW5YGU';
@@ -369,6 +391,16 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         return platform === 'android' || /android/i.test(ua);
     }
 
+    // NUEVO: por defecto NO pedir API key manual en Android
+    function canPromptAndroidManualApiKey() {
+        try {
+            // Solo si se activa explícitamente para diagnóstico
+            return localStorage.getItem('coordinalia-allow-manual-android-key') === '1';
+        } catch (_e) {
+            return false;
+        }
+    }
+
     function saveAndroidAssistantApiKey(apiKey = '') {
         const key = String(apiKey || '').trim();
         const cfg = getAssistantConfig();
@@ -394,24 +426,6 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         return '';
     }
 
-    function normalizeSttProviderValue(value = '') {
-        const raw = String(value || '').toLowerCase().trim();
-        if (['browser', 'local', 'local-browser'].includes(raw)) return 'browser';
-        if (['elevenlabs', '11labs', 'eleven'].includes(raw)) return 'elevenlabs';
-        if (['openai', 'gpt-4o-mini-transcribe', 'gpt4o-mini-transcribe', 'gpt-4o'].includes(raw)) return 'openai';
-        if (['google', 'google-speech', 'google speech'].includes(raw)) return 'google';
-        return '';
-    }
-
-    function normalizeTtsProviderValue(value = '') {
-        const raw = String(value || '').toLowerCase().trim();
-        if (['auto'].includes(raw)) return 'auto';
-        if (['elevenlabs', '11labs', 'eleven'].includes(raw)) return 'elevenlabs';
-        if (['fish', 'fishaudio', 'fish-audio', 'fishspeech', 'fish-speech'].includes(raw)) return 'fish';
-        if (['openai', 'gpt-4o-mini-tts', 'gpt4o-mini-tts'].includes(raw)) return 'openai';
-        if (['google', 'google-speech', 'google speech'].includes(raw)) return 'google';
-        return '';
-    }
 
     function saveApiKeyByProvider(provider = '', apiKey = '') {
         const p = String(provider || '').trim();
@@ -1357,16 +1371,6 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         if (range === 'today') {
             return events.filter(ev => sameDate(ev.date, todayFloor));
         }
-
-        if (range === 'week') {
-            const start = startOfWeek(todayFloor);
-            const end = addDays(start, 6);
-            return events.filter(ev => {
-                const d = parseLocalDate(ev.date);
-                return d && d >= start && d <= end;
-            });
-        }
-
         if (range === 'month') {
             const month = todayFloor.getMonth();
             const year = todayFloor.getFullYear();
@@ -1803,17 +1807,28 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         return typeof window?.Capacitor?.Plugins?.TextToSpeech?.speak === 'function';
     }
 
+    function resolveCapacitorLocalVoiceId() {
+        const cfg = getAssistantConfig();
+        const gender = String(cfg?.ttsGender || '').toLowerCase().trim();
+        if (gender === 'masculine') return ASSISTANT_ANDROID_LOCAL_MALE_TTS_VOICE;
+        return ASSISTANT_ANDROID_LOCAL_FEMALE_TTS_VOICE || '';
+    }
+
     async function speakAssistantTextWithCapacitorTts(text = '') {
         if (!supportsCapacitorTts()) return false;
         try {
-            await window.Capacitor.Plugins.TextToSpeech.speak({
+            const voiceId = resolveCapacitorLocalVoiceId();
+            const payload = {
                 text: String(text || '').trim(),
                 lang: getVoiceLang(assistantLocale),
                 rate: 1,
                 pitch: 1,
                 volume: 1,
                 category: 'playback',
-            });
+            };
+            if (voiceId) payload.voice = voiceId;
+
+            await window.Capacitor.Plugins.TextToSpeech.speak(payload);
             return true;
         } catch (_e) {
             return false;
@@ -2253,24 +2268,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         const t = String(text || '').toLowerCase();
         return /(\breprogramar\b|\breprograma\b|\breagendar\b|\breagenda\b|\bmover\b|\bcambiar\b|\bposponer\b|\baplazar\b|\breschedule\b)/i.test(t);
     }
-    function stripLeadingCommandWords(text = '') {
-        let out = String(text || '').trim();
-        if (!out) return out;
 
-        const cmd = '(?:crear|crea|agendar|agenda|programar|programa|anadir|añadir|add|create|schedule|criar|reprogramar|reprograma|reagendar|reagenda|mover|mueve|cambiar|cambia|reschedule|eliminar|elimina|borrar|borra|cancelar|cancela)';
-        const lead = new RegExp(`^(?:${cmd})(?:\\s+|[:.,;-])+`, 'i');
-        const article = /^(?:el|la|los|las|un|una)\s+/i;
-        const eventWord = /^(?:evento|evento:)\s*/i;
-
-        let changed = true;
-        while (changed) {
-            const before = out;
-            out = out.replace(lead, '').replace(article, '').replace(eventWord, '').trim();
-            changed = out !== before;
-        }
-
-        return out.replace(/^[\s:.,;-]+/, '').trim();
-    }
 
     function isAssistantDeleteIntent(text = '') {
         const t = String(text || '').toLowerCase();
@@ -2286,28 +2284,6 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         return '';
     }
 
-    function parseAssistantDateHint(text = '') {
-        const original = String(text || '').trim();
-        if (!original) return '';
-        const normalized = normalizeLooseText(original);
-        if (/\b(hoy|today|hoje)\b/.test(normalized)) return formatISODate(new Date());
-        if (/\b(pasado\s+manana|pasado\s+mañana|day\s+after\s+tomorrow|depois\s+de\s+amanha|depois\s+de\s+amanhã)\b/.test(normalized)) {
-            return formatISODate(addDays(new Date(), 2));
-        }
-        if (/\b(manana|mañana|tomorrow|amanha|amanhã|dia siguiente|d[ií]a siguiente|next day)\b/.test(normalized)) {
-            return formatISODate(addDays(new Date(), 1));
-        }
-        if (/\b(semana\s+que\s+viene|proxima\s+semana|pr[oó]xima\s+semana|next\s+week|proxima\s+semana)\b/.test(normalized)) {
-            return formatISODate(addDays(new Date(), 7));
-        }
-        if (/\b(proximo\s+mes|pr[oó]ximo\s+mes|next\s+month|mes\s+que\s+viene)\b/.test(normalized)) {
-            const d = new Date();
-            d.setMonth(d.getMonth() + 1);
-            return formatISODate(d);
-        }
-        const dateMatch = original.match(/\b(\d{4}-\d{2}-\d{2})\b/);
-        return dateMatch ? dateMatch[1] : '';
-    }
 
     function hasFutureDateIntentHint(text = '') {
         const t = normalizeLooseText(text);
@@ -2349,16 +2325,6 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         };
     }
 
-    function parseAssistantTimeHint(text = '') {
-        const original = String(text || '').trim();
-        if (!original) return '';
-        const hhmm = original.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
-        if (hhmm) return `${String(hhmm[1]).padStart(2, '0')}:${hhmm[2]}`;
-
-        const hourMatch = original.match(/(?:a\s+las|a\s+la|at|às|as)\s*([01]?\d|2[0-3])\b/i);
-        if (hourMatch) return `${String(hourMatch[1]).padStart(2, '0')}:00`;
-        return '';
-    }
 
     function parseAssistantRescheduleFromText(text = '') {
         const original = String(text || '').trim();
@@ -2584,52 +2550,6 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         return Object.entries(vars).reduce((acc, [k, v]) => acc.replaceAll(`{{${k}}}`, String(v ?? '')), template);
     }
 
-    function getTtsProviderListLabel() {
-        const list = Object.keys(ASSISTANT_TTS_PROVIDERS || {}).filter(Boolean);
-        return list.join(', ');
-    }
-
-    function extractProviderFromFreeText(text = '') {
-        const normalized = normalizeLooseText(text);
-        const tokens = normalized.split(' ').filter(Boolean);
-        for (const token of tokens) {
-            const provider = normalizeTtsProviderValue(token);
-            if (provider) return provider;
-        }
-        return normalizeTtsProviderValue(text);
-    }
-
-    function extractTtsApiKeyInput(text = '', preferredProvider = '') {
-        const raw = String(text || '').trim();
-        if (!raw) return { provider: '', key: '' };
-
-        const cmdMatch = raw.match(/^\/(?:ttskey|elevenlabs_key)\s+(?:(elevenlabs|fish|openai|google|11labs)\s+)?(.+)$/i);
-        if (cmdMatch) {
-            return {
-                provider: normalizeTtsProviderValue(cmdMatch[1] || preferredProvider),
-                key: String(cmdMatch[2] || '').trim(),
-            };
-        }
-
-        const sentenceMatch = raw.match(/(?:api\s*key|apikey|clave|token)(?:\s+es|\s*[:=])?\s*([A-Za-z0-9._-]{8,})/i);
-        if (sentenceMatch) {
-            return {
-                provider: normalizeTtsProviderValue(preferredProvider),
-                key: String(sentenceMatch[1] || '').trim(),
-            };
-        }
-
-        const plain = raw.replace(/^['"]|['"]$/g, '').trim();
-        if (plain.length >= 8 && !/\s/.test(plain)) {
-            return {
-                provider: normalizeTtsProviderValue(preferredProvider),
-                key: plain,
-            };
-        }
-
-        return { provider: normalizeTtsProviderValue(preferredProvider), key: '' };
-    }
-
     function shouldStartTtsSetupFlow(text = '') {
         if (!text || String(text).trim().startsWith('/')) return false;
         return detectAssistantManualTopic(text) === 'tts-provider';
@@ -2703,45 +2623,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         return Object.entries(vars).reduce((acc, [k, v]) => acc.replaceAll(`{{${k}}}`, String(v ?? '')), template);
     }
 
-    function normalizeLooseText(value = '') {
-        return String(value || '')
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .replace(/[^a-z0-9\s]/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-    }
 
-    function titleMatchesLoose(eventTitle = '', requestedTitle = '') {
-        const evTitle = normalizeLooseText(eventTitle);
-        const reqTitle = normalizeLooseText(requestedTitle);
-        if (!evTitle || !reqTitle) return false;
-
-        if (evTitle === reqTitle || evTitle.includes(reqTitle) || reqTitle.includes(evTitle)) {
-            return true;
-        }
-
-        const evTokens = new Set(evTitle.split(' ').filter(Boolean));
-        const reqTokens = reqTitle.split(' ').filter(Boolean);
-        if (!evTokens.size || !reqTokens.length) return false;
-
-        const relevantReqTokens = reqTokens.filter(t => t.length >= 3);
-        const source = relevantReqTokens.length ? relevantReqTokens : reqTokens;
-        const overlap = source.filter(t => evTokens.has(t)).length;
-        if (!source.length) return false;
-        return overlap >= Math.min(2, source.length);
-    }
-
-    function isAssistantConfirmText(text = '') {
-        const t = normalizeLooseText(text);
-        return /^(si|yes|y|ok|dale|confirmo|confirmar|confirm|sim)\b/.test(t);
-    }
-
-    function isAssistantCancelText(text = '') {
-        const t = normalizeLooseText(text);
-        return /^(no|cancel|cancelar|negar|nao|não)\b/.test(t);
-    }
 
     function formatEventLine(ev = {}) {
         const title = String(ev.title || 'Evento').trim();
@@ -3285,11 +3167,14 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             return;
         }
 
+
         let cfg = getAssistantConfig();
         const canUseBridgeStream = typeof window.appBridge?.chatStream === 'function' && typeof window.appBridge?.onAssistantChunk === 'function';
         const canUseBridgeChat = typeof window.appBridge?.chat === 'function';
         const canUseAndroidNativeChat = !canUseBridgeStream && !canUseBridgeChat && isAndroidRuntime();
-        const shouldRequireAndroidManualKey = isAndroidRuntime() && canUseAndroidNativeChat;
+
+        // CAMBIO: solo pedir key manual si se habilitó explícitamente el modo legacy
+        const shouldRequireAndroidManualKey = canUseAndroidNativeChat && canPromptAndroidManualApiKey();
 
         if (shouldRequireAndroidManualKey) {
             const key = ensureAndroidAssistantApiKey();
@@ -3311,19 +3196,23 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             appendAssistantMessage(assistantMsg);
             let safetyTimer = null;
 
-            let finalReply = '';
+            let finalReply = null;
             if (canUseBridgeStream) {
                 // Suscribir a los chunks de streaming
                 assistantUnsubscribe?.();
-                assistantUnsubscribe = window.appBridge.onAssistantChunk((data) => {
+                assistantUnsubscribe = window.appBridge.onAssistantChunk(async (data) => {
                     if (!data || data.requestId !== requestId) return;
                     if (data.delta) {
                         assistantMsg.content += data.delta;
                         renderAssistantMessages();
-                    } else if (typeof data.content === 'string' && data.content.length > assistantMsg.content.length) {
-                        // Fallback cuando el proveedor envía el texto completo en cada chunk
-                        assistantMsg.content = data.content;
-                        renderAssistantMessages();
+                    } else if (canUseAndroidNativeChat && canPromptAndroidManualApiKey()) {
+                        // Solo modo legado explícito
+                        const androidApiKey = String(cfg.androidApiKey || '').trim();
+                        if (!androidApiKey) throw new Error('NO_API_KEY');
+                        finalReply = await callAssistantAndroid(messagesForApi, { provider: cfg.provider });
+                    } else {
+                        // CAMBIO: no caer a prompt/manual key por defecto
+                        throw new Error('ASSISTANT_BRIDGE_UNAVAILABLE');
                     }
                     if (data.done) {
                         setAssistantStatus('');
