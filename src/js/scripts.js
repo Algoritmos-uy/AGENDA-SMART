@@ -1,11 +1,69 @@
 import { Notifier } from './notifications.js';
+
+import {
+    canPromptAndroidManualApiKey,
+    isAndroidRuntime,
+    isInvalidApiKeyError,
+    sanitizeAssistantErrorMessage
+} from './utils/assistantRuntimeUtils.js';
+
+import {
+    createVoiceRecognizer
+} from './utils/assistantVoiceRecognitionUtils.js';
+
+import { createAssistantActionHandler } from './utils/assistantActionHandlerFactory.js';
+
+import {
+    buildAssistantContextCore,
+    formatAssistantEventsCore,
+    getEventsByRangeCore
+} from './utils/assistantContextUtils.js';
+
+import {
+    hasFutureDateIntentHint,
+    isAssistantCreateIntent,
+    parseAssistantAttendanceFromText,
+    parseAssistantCreateFromText,
+    parseAssistantDeleteFromText,
+    parseAssistantRescheduleFromText,
+} from './utils/assistantIntentParsers.js';
+
+import {
+    chunksToAudioBlob,
+    getSttRetryDelayMs,
+    isRetryableSttError,
+    resolveRecorderMimeType,
+    startRecorderCapture,
+    stopRecorderCapture
+} from './utils/assistantVoiceRecorderUtils.js';
+
+import {
+    appendVoiceTranscriptBuffer,
+    getFinalVoiceTranscript,
+    resetVoiceCaptureFlags
+} from './utils/assistantVoiceCaptureUtils.js';
+
+import {
+    buildUpdateCandidateCore,
+    formatEventLineCore,
+    getAttendanceFromActionCore,
+    resolveActionCandidatesCore
+} from './utils/assistantActionUtils.js';
+
+import {
+    assistantShortText as assistantShortTextFromUtils,
+    buildAssistantManualReply as buildAssistantManualReplyFromUtils,
+    detectAssistantManualTopic as detectAssistantManualTopicFromUtils,
+    getAvailableTtsProvidersForHelp as getAvailableTtsProvidersForHelpFromUtils,
+    ttsSetupText as ttsSetupTextFromUtils
+} from './utils/assistantHelpUtils.js';
+
 import {
     isAssistantCancelText,
     isAssistantConfirmText,
     normalizeLooseText,
     parseAssistantDateHint,
     parseAssistantTimeHint,
-    stripLeadingCommandWords,
     titleMatchesLoose
 } from './utils/assistantParserUtils.js';
 
@@ -227,9 +285,10 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     let assistantVoiceTranscriptBuffer = '';
     let assistantVoiceFinalizeTimer = null;
     let assistantVoiceSubmitting = false;
-    let assistantRecorder = null;
-    let assistantRecorderChunks = [];
-    let assistantRecorderStream = null;
+    let assistantVoiceRecorder = null;
+    let assistantVoiceChunks = [];
+    let assistantVoiceRecorderStream = null;
+    let assistantVoiceRecorderMimeType = 'audio/webm';
     let assistantTtsAudio = null;
     let assistantTtsEnabled = true;
     let assistantTtsProvider = 'auto';
@@ -385,21 +444,6 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         return cfg;
     }
 
-    function isAndroidRuntime() {
-        const ua = String(navigator?.userAgent || '');
-        const platform = String(window?.Capacitor?.getPlatform?.() || '').toLowerCase();
-        return platform === 'android' || /android/i.test(ua);
-    }
-
-    // NUEVO: por defecto NO pedir API key manual en Android
-    function canPromptAndroidManualApiKey() {
-        try {
-            // Solo si se activa explícitamente para diagnóstico
-            return localStorage.getItem('coordinalia-allow-manual-android-key') === '1';
-        } catch (_e) {
-            return false;
-        }
-    }
 
     function saveAndroidAssistantApiKey(apiKey = '') {
         const key = String(apiKey || '').trim();
@@ -1364,38 +1408,20 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
 
     function getEventsByRange(range) {
-        const events = sortEvents(getEvents());
-        const today = new Date();
-        const todayFloor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-        if (range === 'today') {
-            return events.filter(ev => sameDate(ev.date, todayFloor));
-        }
-        if (range === 'month') {
-            const month = todayFloor.getMonth();
-            const year = todayFloor.getFullYear();
-            return events.filter(ev => {
-                const d = parseLocalDate(ev.date);
-                return d && d.getMonth() === month && d.getFullYear() === year;
-            });
-        }
-
-        return [];
+        return getEventsByRangeCore(range, {
+            sortEvents,
+            getEvents,
+            sameDate,
+            parseLocalDate
+        });
     }
 
     function formatAssistantEvents(list, range) {
-        const headers = assistantStrings.headers;
-        const noEvents = assistantStrings.noEvents;
-        if (!list.length) {
-            return (noEvents && noEvents[range]) || tr('calendar.noEvents');
-        }
-        const title = (headers && headers[range]) || tr('assistant.eventsTitle');
-        const lines = list.map(ev => {
-            const desc = ev.description ? ` — ${ev.description}` : '';
-            const attendance = getAttendanceLabel(ev.attendance);
-            return `- ${ev.date} ${ev.start}-${ev.end} ${ev.title}${desc} [${attendance}]`;
+        return formatAssistantEventsCore(list, range, {
+            assistantStrings,
+            tr,
+            getAttendanceLabel
         });
-        return `${title}\n${lines.join('\n')}`;
     }
 
     function startClock() {
@@ -1532,33 +1558,20 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     }
 
     function resetAssistantVoiceCaptureState() {
-        assistantVoiceTranscriptBuffer = '';
-        assistantVoiceSubmitting = false;
+        const next = resetVoiceCaptureFlags();
+        assistantVoiceTranscriptBuffer = next.buffer;
+        assistantVoiceSubmitting = next.submitting;
         clearTimeout(assistantVoiceFinalizeTimer);
         assistantVoiceFinalizeTimer = null;
     }
 
     function appendAssistantVoiceTranscript(segment = '') {
-        const clean = cleanVoiceTranscript(segment || '');
-        if (!clean) return;
-
-        const current = cleanVoiceTranscript(assistantVoiceTranscriptBuffer || '');
-        if (!current) {
-            assistantVoiceTranscriptBuffer = clean;
-            return;
-        }
-
-        if (current === clean || current.endsWith(clean)) {
-            assistantVoiceTranscriptBuffer = current;
-            return;
-        }
-
-        assistantVoiceTranscriptBuffer = `${current} ${clean}`.replace(/\s+/g, ' ').trim();
+        assistantVoiceTranscriptBuffer = appendVoiceTranscriptBuffer(assistantVoiceTranscriptBuffer, segment);
     }
 
     function finalizeAssistantVoiceTranscript() {
         if (assistantVoiceSubmitting) return;
-        const transcript = cleanVoiceTranscript(assistantVoiceTranscriptBuffer || '');
+        const transcript = getFinalVoiceTranscript(assistantVoiceTranscriptBuffer);
         if (!transcript) {
             setAssistantStatus(tr('assistant.transcriptFailed'));
             return;
@@ -1581,118 +1594,110 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     }
 
     function createAssistantRecognizer() {
-        const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognitionCtor) return null;
-        const rec = new SpeechRecognitionCtor();
-        rec.lang = getVoiceLang(assistantLocale);
-        rec.interimResults = false;
-        rec.continuous = true;
-        rec.maxAlternatives = 1;
-
-        rec.onstart = () => {
-            assistantListening = true;
-            if (!assistantVoiceTranscriptBuffer) {
-                assistantVoiceHasResult = false;
-            }
-            setAssistantStatus(tr('assistant.listening'));
-            updateVoiceUi();
-        };
-
-        rec.onend = () => {
-            if (
-                !assistantVoiceStopRequested
-                && assistantVoiceMode === 'recognition'
-                && !assistantVoiceSubmitting
-                && assistantVoiceTranscriptBuffer
-            ) {
-                if (assistantVoiceFinalizeTimer) {
-                    setTimeout(() => {
-                        if (!assistantVoiceStopRequested && !assistantVoiceSubmitting) {
-                            startAssistantVoiceRecognition({ fromRetry: true });
+        return createVoiceRecognizer({
+            windowRef: window,
+            locale: assistantLocale,
+            getVoiceLang,
+            handlers: {
+                onstart: () => {
+                    assistantListening = true;
+                    if (!assistantVoiceTranscriptBuffer) assistantVoiceHasResult = false;
+                    setAssistantStatus(tr('assistant.listening'));
+                    updateVoiceUi();
+                },
+                onend: () => {
+                    if (
+                        !assistantVoiceStopRequested
+                        && assistantVoiceMode === 'recognition'
+                        && !assistantVoiceSubmitting
+                        && assistantVoiceTranscriptBuffer
+                    ) {
+                        if (assistantVoiceFinalizeTimer) {
+                            setTimeout(() => {
+                                if (!assistantVoiceStopRequested && !assistantVoiceSubmitting) {
+                                    startAssistantVoiceRecognition({ fromRetry: true });
+                                }
+                            }, 220);
+                            return;
                         }
-                    }, 220);
-                    return;
-                }
-                finalizeAssistantVoiceTranscript();
-                return;
-            }
-
-            if (
-                !assistantVoiceStopRequested
-                && assistantVoiceMode === 'recognition'
-                && !assistantVoiceHasResult
-                && assistantVoiceOnEndRetryCount < ASSISTANT_VOICE_ONEND_MAX_RETRIES
-            ) {
-                assistantVoiceOnEndRetryCount += 1;
-                setAssistantStatus(mapVoiceErrorCode('no-speech', assistantLocale));
-                setTimeout(() => {
-                    if (!assistantVoiceStopRequested) {
-                        startAssistantVoiceRecognition({ fromRetry: true });
+                        finalizeAssistantVoiceTranscript();
+                        return;
                     }
-                }, 350);
-                return;
+
+                    if (
+                        !assistantVoiceStopRequested
+                        && assistantVoiceMode === 'recognition'
+                        && !assistantVoiceHasResult
+                        && assistantVoiceOnEndRetryCount < ASSISTANT_VOICE_ONEND_MAX_RETRIES
+                    ) {
+                        assistantVoiceOnEndRetryCount += 1;
+                        setAssistantStatus(mapVoiceErrorCode('no-speech', assistantLocale));
+                        setTimeout(() => {
+                            if (!assistantVoiceStopRequested) {
+                                startAssistantVoiceRecognition({ fromRetry: true });
+                            }
+                        }, 350);
+                        return;
+                    }
+
+                    assistantListening = false;
+                    updateVoiceUi();
+                },
+                onerror: (event) => {
+                    const code = event?.error || 'unknown';
+                    const isNetworkError = code === 'network';
+
+                    if (isNetworkError && !assistantVoiceStopRequested && assistantVoiceRetryCount < ASSISTANT_VOICE_MAX_RETRIES) {
+                        assistantVoiceRetryCount += 1;
+                        const waitMs = 700 * assistantVoiceRetryCount;
+                        setAssistantStatus(tr('assistant.networkRetry', {
+                            current: assistantVoiceRetryCount,
+                            max: ASSISTANT_VOICE_MAX_RETRIES,
+                        }));
+                        clearTimeout(assistantVoiceRetryTimer);
+                        assistantVoiceRetryTimer = setTimeout(() => {
+                            startAssistantVoiceRecognition({ fromRetry: true });
+                        }, waitMs);
+                        return;
+                    }
+
+                    if (isNetworkError && !assistantVoiceStopRequested) {
+                        setAssistantStatus(tr('assistant.voiceServiceFallback'));
+                        assistantVoiceMode = 'recorder';
+                        assistantListening = false;
+                        updateVoiceUi();
+                        startVoiceRecorderFlow();
+                        return;
+                    }
+
+                    const msg = mapVoiceErrorCode(code, assistantLocale);
+                    setAssistantStatus(msg);
+                    assistantListening = false;
+                    updateVoiceUi();
+                },
+                onresult: (event) => {
+                    assistantVoiceHasResult = true;
+                    assistantVoiceOnEndRetryCount = 0;
+
+                    const startIndex = Number.isFinite(event?.resultIndex) ? event.resultIndex : 0;
+                    const results = event?.results || [];
+
+                    for (let i = startIndex; i < results.length; i += 1) {
+                        const item = results[i];
+                        const chunk = item?.[0]?.transcript || '';
+                        appendAssistantVoiceTranscript(chunk);
+                    }
+
+                    if (!assistantVoiceTranscriptBuffer) {
+                        setAssistantStatus(tr('assistant.transcriptFailed'));
+                        return;
+                    }
+
+                    setAssistantStatus(tr('assistant.listening'));
+                    scheduleAssistantVoiceFinalize();
+                }
             }
-
-            assistantListening = false;
-            updateVoiceUi();
-        };
-
-        rec.onerror = (event) => {
-            const code = event?.error || 'unknown';
-            const isNetworkError = code === 'network';
-
-            if (isNetworkError && !assistantVoiceStopRequested && assistantVoiceRetryCount < ASSISTANT_VOICE_MAX_RETRIES) {
-                assistantVoiceRetryCount += 1;
-                const waitMs = 700 * assistantVoiceRetryCount;
-                setAssistantStatus(tr('assistant.networkRetry', {
-                    current: assistantVoiceRetryCount,
-                    max: ASSISTANT_VOICE_MAX_RETRIES,
-                }));
-                clearTimeout(assistantVoiceRetryTimer);
-                assistantVoiceRetryTimer = setTimeout(() => {
-                    startAssistantVoiceRecognition({ fromRetry: true });
-                }, waitMs);
-                return;
-            }
-
-            if (isNetworkError && !assistantVoiceStopRequested) {
-                setAssistantStatus(tr('assistant.voiceServiceFallback'));
-                assistantVoiceMode = 'recorder';
-                assistantListening = false;
-                updateVoiceUi();
-                startVoiceRecorderFlow();
-                return;
-            }
-
-            const msg = mapVoiceErrorCode(code, assistantLocale);
-            setAssistantStatus(msg);
-            assistantListening = false;
-            updateVoiceUi();
-        };
-
-        rec.onresult = (event) => {
-            assistantVoiceHasResult = true;
-            assistantVoiceOnEndRetryCount = 0;
-
-            const startIndex = Number.isFinite(event?.resultIndex) ? event.resultIndex : 0;
-            const results = event?.results || [];
-
-            for (let i = startIndex; i < results.length; i += 1) {
-                const item = results[i];
-                const chunk = item?.[0]?.transcript || '';
-                appendAssistantVoiceTranscript(chunk);
-            }
-
-            if (!assistantVoiceTranscriptBuffer) {
-                setAssistantStatus(tr('assistant.transcriptFailed'));
-                return;
-            }
-
-            setAssistantStatus(tr('assistant.listening'));
-            scheduleAssistantVoiceFinalize();
-        };
-
-        return rec;
+        });
     }
 
     function submitAssistantFromVoice() {
@@ -2108,106 +2113,125 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
     async function startVoiceRecorderFlow() {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            assistantRecorderStream = stream;
-            assistantRecorderChunks = [];
+            assistantVoiceChunks = [];
+            const pickedMime = resolveRecorderMimeType(window);
 
-            const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-                ? 'audio/webm;codecs=opus'
-                : 'audio/webm';
-            assistantRecorder = new MediaRecorder(stream, { mimeType });
-
-            assistantRecorder.ondataavailable = (evt) => {
-                if (evt?.data && evt.data.size > 0) {
-                    assistantRecorderChunks.push(evt.data);
+            const started = await startRecorderCapture({
+                windowRef: window,
+                mimeType: pickedMime,
+                onData: (chunk) => {
+                    assistantVoiceChunks.push(chunk);
+                },
+                onStop: async () => {
+                    if (assistantVoiceStopRequested) return;
+                    const blob = chunksToAudioBlob(
+                        assistantVoiceChunks,
+                        assistantVoiceRecorderMimeType || pickedMime || 'audio/webm'
+                    );
+                    assistantVoiceChunks = [];
+                    await transcribeRecordedAudio(blob);
+                },
+                onError: () => {
+                    setAssistantStatus(tr('assistant.transcriptFailed'));
                 }
-            };
+            });
 
-            assistantRecorder.onstop = async () => {
-                try {
-                    const blob = new Blob(assistantRecorderChunks, { type: assistantRecorder.mimeType || 'audio/webm' });
-                    if (!blob.size) {
-                        setAssistantStatus(tr('assistant.noAudioCaptured'));
-                        return;
-                    }
+            assistantVoiceRecorder = started.recorder;
+            assistantVoiceRecorderStream = started.stream;
+            assistantVoiceRecorderMimeType = started.mimeType || pickedMime || 'audio/webm';
 
-                    setAssistantStatus(tr('assistant.transcribing'));
-                    const buffer = await blob.arrayBuffer();
-                    const cfg = getAssistantConfig();
-                    const transcript = await window.appBridge?.transcribeAudio?.({
-                        provider: cfg.provider,
-                        language: getVoiceLang(assistantLocale),
-                        mimeType: blob.type || 'audio/webm',
-                        audioBuffer: buffer,
-                    });
-
-                    const text = cleanVoiceTranscript(transcript || '');
-                    if (!text) {
-                        setAssistantStatus(tr('assistant.transcriptFailed'));
-                        return;
-                    }
-
-                    if (assistantInput) assistantInput.value = text;
-                    submitAssistantFromVoice();
-                } catch (e) {
-                    console.warn('Fallo transcripción de audio', e);
-                    const raw = String(e?.message || '');
-                    const errCode = String(e?.code || '');
-                    const quotaOrBillingIssue = /(\b402\b|insufficient|quota|billing|payment required|credit|saldo)/i.test(raw);
-                    if (quotaOrBillingIssue) {
-                        assistantVoiceMode = 'recognition';
-                        assistantListening = false;
-                        updateVoiceUi();
-                        setAssistantStatus(tr('assistant.sttAutoFallbackRecognition'));
-                        return;
-                    }
-
-                    if (/NO_STT_API_KEY/i.test(errCode) || /NO_STT_API_KEY/i.test(raw)) {
-                        assistantVoiceMode = 'recognition';
-                        assistantListening = false;
-                        updateVoiceUi();
-                        setAssistantStatus(tr('assistant.transcribeApiKey'));
-                        return;
-                    }
-
-                    const msg = /STT error/i.test(e?.message || '')
-                        ? tr('assistant.transcribeError', { error: (e.message || '').slice(0, 120) })
-                        : tr('assistant.transcribeRecordedFail');
-                    setAssistantStatus(msg);
-                } finally {
-                    assistantListening = false;
-                    updateVoiceUi();
-                    stopRecorderTracks();
-                }
-            };
-
-            assistantRecorder.start();
             assistantListening = true;
-            setAssistantStatus(tr('assistant.recording'));
             updateVoiceUi();
-        } catch (e) {
-            console.warn('No se pudo iniciar grabación de voz', e);
-            setAssistantStatus(tr('assistant.recordingStartFailed'));
+            setAssistantStatus(tr('assistant.listening'));
+        } catch (_e) {
             assistantListening = false;
             updateVoiceUi();
-            stopRecorderTracks();
-        }
-    }
-
-    function stopRecorderTracks() {
-        if (assistantRecorderStream) {
-            assistantRecorderStream.getTracks().forEach(t => t.stop());
-            assistantRecorderStream = null;
+            setAssistantStatus(tr('assistant.voiceServiceFallback'));
         }
     }
 
     function stopVoiceRecorderFlow() {
-        if (assistantRecorder && assistantRecorder.state !== 'inactive') {
-            assistantRecorder.stop();
-        } else {
+        stopRecorderCapture({
+            recorder: assistantVoiceRecorder,
+            stream: assistantVoiceRecorderStream
+        });
+        assistantVoiceRecorder = null;
+        assistantVoiceRecorderStream = null;
+        assistantListening = false;
+        updateVoiceUi();
+    }
+
+    function bytesToBase64(bytes) {
+        let bin = '';
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            const sub = bytes.subarray(i, i + chunkSize);
+            bin += String.fromCharCode(...sub);
+        }
+        return btoa(bin);
+    }
+
+    async function transcribeRecordedAudio(blob) {
+        try {
+            if (!blob || !blob.size) throw new Error('EMPTY_AUDIO');
+
+            if (typeof window.appBridge?.transcribeSpeech !== 'function') {
+                throw new Error('STT_UNAVAILABLE');
+            }
+
+            setAssistantStatus(tr('assistant.transcribing'));
+
+            const cfg = getAssistantConfig();
+            const provider = normalizeSttProviderValue(cfg.sttProvider || 'browser') || 'browser';
+            const arr = new Uint8Array(await blob.arrayBuffer());
+            const audioBase64 = bytesToBase64(arr);
+
+            const result = await window.appBridge.transcribeSpeech({
+                provider,
+                model: String(cfg.sttModel || '').trim(),
+                apiUrl: String(cfg.sttApiUrl || '').trim(),
+                language: getVoiceLang(assistantLocale),
+                mimeType: blob.type || assistantVoiceRecorderMimeType || 'audio/webm',
+                audioBase64,
+                apiKey: provider === 'openai'
+                    ? String(cfg.openaiApiKey || '').trim()
+                    : provider === 'google'
+                        ? String(cfg.googleApiKey || '').trim()
+                        : String(cfg.androidTtsApiKey || '').trim(),
+            });
+
+            const transcript = cleanVoiceTranscript(
+                result?.text || result?.transcript || result?.content || ''
+            );
+
+            if (!transcript) throw new Error('EMPTY_TRANSCRIPT');
+
+            if (assistantInput) assistantInput.value = transcript;
+            submitAssistantFromVoice();
+        } catch (err) {
+            const raw = err?.message || err?.code || '';
+            if (
+                !assistantVoiceStopRequested &&
+                isRetryableSttError(raw) &&
+                assistantVoiceRetryCount < ASSISTANT_VOICE_MAX_RETRIES
+            ) {
+                assistantVoiceRetryCount += 1;
+                const waitMs = getSttRetryDelayMs(assistantVoiceRetryCount);
+                setAssistantStatus(tr('assistant.networkRetry', {
+                    current: assistantVoiceRetryCount,
+                    max: ASSISTANT_VOICE_MAX_RETRIES
+                }));
+                clearTimeout(assistantVoiceRetryTimer);
+                assistantVoiceRetryTimer = setTimeout(() => {
+                    if (!assistantVoiceStopRequested) startVoiceRecorderFlow();
+                }, waitMs);
+                return;
+            }
+
+            setAssistantStatus(tr('assistant.transcriptFailed'));
+        } finally {
             assistantListening = false;
             updateVoiceUi();
-            stopRecorderTracks();
         }
     }
 
@@ -2259,38 +2283,6 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         if (assistantInput) assistantInput.value = '';
     }
 
-    function isAssistantCreateIntent(text = '') {
-        const t = String(text || '').toLowerCase();
-        return /(\bcrear\b|\bcrea\b|\bagendar\b|\bagenda\b|\bprogramar\b|\bprograma\b|\banadir\b|\bañadir\b|\badd\b|\bcreate\b|\bschedule\b|\bnovo\b|\bcriar\b)/i.test(t);
-    }
-
-    function isAssistantRescheduleIntent(text = '') {
-        const t = String(text || '').toLowerCase();
-        return /(\breprogramar\b|\breprograma\b|\breagendar\b|\breagenda\b|\bmover\b|\bcambiar\b|\bposponer\b|\baplazar\b|\breschedule\b)/i.test(t);
-    }
-
-
-    function isAssistantDeleteIntent(text = '') {
-        const t = String(text || '').toLowerCase();
-        return /(\beliminar\b|\belimina\b|\bborrar\b|\bborra\b|\bcancelar\b|\bcancela\b|\bdelete\b|\bremove\b)/i.test(t);
-    }
-
-    function parseAttendanceFromText(text = '') {
-        const t = normalizeLooseText(text);
-        if (/\b(confirmad[oa]|confirmar|confirm|accepted|aceptad[oa]|yes|si|sim)\b/.test(t)) return 'confirmed';
-        if (/\b(no asiste|rechazad[oa]|declined?|cancelad[oa]|no)\b/.test(t)) return 'declined';
-        if (/\b(tentativ[oa]|maybe|tal vez|quizas|quiza)\b/.test(t)) return 'tentative';
-        if (/\b(pendiente|pendente|pending|sin confirmar)\b/.test(t)) return 'pending';
-        return '';
-    }
-
-
-    function hasFutureDateIntentHint(text = '') {
-        const t = normalizeLooseText(text);
-        if (!t) return false;
-        return /(manana|mañana|pasado manana|pasado mañana|tomorrow|next day|day after tomorrow|amanha|amanhã|depois de amanha|depois de amanhã|proxima semana|próxima semana|next week|proximo mes|próximo mes|next month|a futuro|future|futuro|la semana que viene|mes que viene)/.test(t);
-    }
-
     function normalizeCreateActionDateForFuture(action = {}, userText = '') {
         const rawDate = String(action?.date || '').trim();
         if (!rawDate) return action;
@@ -2325,229 +2317,27 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         };
     }
 
-
-    function parseAssistantRescheduleFromText(text = '') {
-        const original = String(text || '').trim();
-        if (!original || !isAssistantRescheduleIntent(original)) return null;
-
-        const isoDates = Array.from(original.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g)).map(m => m[1]);
-        const hhmmTimes = Array.from(original.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g))
-            .map(m => `${String(m[1]).padStart(2, '0')}:${m[2]}`);
-
-        const inferredDate = parseAssistantDateHint(original);
-        const inferredTime = parseAssistantTimeHint(original);
-
-        const targetDate = isoDates.length >= 2 ? isoDates[0] : '';
-        const targetStart = hhmmTimes.length >= 2 ? hhmmTimes[0] : '';
-        const newDate = isoDates.length >= 2 ? isoDates[isoDates.length - 1] : inferredDate;
-        const newStart = hhmmTimes.length >= 2 ? hhmmTimes[hhmmTimes.length - 1] : inferredTime;
-
-        if (!newStart && !newDate) return null;
-
-        const titleMatch = original.match(/(?:reprograma(?:r)?|reagenda(?:r)?|mueve?|cambia(?:r)?(?:\s+el\s+horario)?|reschedule)(?:\s+|[:.,;-])+(?:el|la)?\s*(?:evento\s*)?(?:de\s*)?(.+?)(?:\s+(?:para|to)\b|$)/i);
-        const title = stripLeadingCommandWords(String(titleMatch?.[1] || '').trim());
-        if (!title) return null;
-
-        return {
-            action: 'reschedule_event',
-            title,
-            ...(newDate ? { new_date: newDate } : {}),
-            ...(newStart ? { new_start: newStart } : {}),
-            ...(targetDate ? { target_date: targetDate } : {}),
-            ...(targetStart ? { target_start: targetStart } : {}),
-        };
-    }
-
-    function parseAssistantDeleteFromText(text = '') {
-        const original = String(text || '').trim();
-        if (!original || !isAssistantDeleteIntent(original)) return null;
-
-        const date = parseAssistantDateHint(original);
-        const start = parseAssistantTimeHint(original);
-        const titleMatch = original.match(/(?:elimina(?:r)?|borra(?:r)?|cancela(?:r)?|delete|remove)\s+(?:el|la)?\s*(?:evento\s*)?(?:de\s*)?(.+?)(?:\s+(?:para|de|del|el|la)\b|$)/i);
-        const title = String(titleMatch?.[1] || '').trim();
-        if (!title) return null;
-
-        return {
-            action: 'delete_event',
-            title,
-            ...(date ? { date } : {}),
-            ...(start ? { start } : {}),
-        };
-    }
-
-    function parseAssistantAttendanceFromText(text = '') {
-        const original = String(text || '').trim();
-        if (!original) return null;
-
-        const attendance = parseAttendanceFromText(original);
-        if (!attendance) return null;
-
-        const titleMatch = original.match(/(?:confirma(?:r)?(?:\s+asistencia)?|marcar?\s+(?:como\s+)?(?:pendiente|confirmad[oa]|tentativ[oa]|no\s+asiste)|set\s+attendance\s+to\s+\w+)\s+(?:el|la)?\s*(?:evento\s*)?(?:de\s*)?(.+?)(?:\s+(?:para|de|del|el|la)\b|$)/i);
-        const title = String(titleMatch?.[1] || '').trim();
-        if (!title) return null;
-
-        const date = parseAssistantDateHint(original);
-        const start = parseAssistantTimeHint(original);
-        return {
-            action: 'set_attendance',
-            title,
-            attendance,
-            ...(date ? { date } : {}),
-            ...(start ? { start } : {}),
-        };
-    }
-
-    function parseAssistantCreateFromText(text = '') {
-        const original = String(text || '').trim();
-        if (!original || !isAssistantCreateIntent(original)) return null;
-        if (isAssistantRescheduleIntent(original)) return null;
-
-        const lower = original.toLowerCase();
-
-        let date = '';
-        if (/\bhoy\b|\btoday\b|\bhoje\b/i.test(lower)) {
-            date = formatISODate(new Date());
-        } else if (/\bmañana\b|\bmanana\b|\btomorrow\b|\bamanh[ãa]\b/i.test(lower)) {
-            date = formatISODate(addDays(new Date(), 1));
-        } else {
-            const dateMatch = original.match(/\b(\d{4}-\d{2}-\d{2})\b/);
-            if (dateMatch) date = dateMatch[1];
-        }
-
-        let start = '';
-        const hhmm = original.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
-        if (hhmm) {
-            start = `${String(hhmm[1]).padStart(2, '0')}:${hhmm[2]}`;
-        } else {
-            const hourMatch = original.match(/(?:a\s+las|a\s+la|at|às|as)\s*([01]?\d|2[0-3])\b/i);
-            if (hourMatch) {
-                start = `${String(hourMatch[1]).padStart(2, '0')}:00`;
-            }
-        }
-
-        let title = '';
-        const titleMatch = original.match(/(?:llamad[oa]|titulad[oa]|title|named)\s+(.+)$/i);
-        if (titleMatch?.[1]) {
-            title = stripLeadingCommandWords(titleMatch[1].trim());
-        } else {
-            const cleaned = original
-                .replace(/^(?:crear|crea|agendar|agenda|programar|programa|add|create|schedule|criar)(?:\s+|[:.,;-])+/i, '')
-                .replace(/\b(hoy|mañana|manana|today|tomorrow|hoje|amanhã|amanha)\b/ig, '')
-                .replace(/(?:a\s+las|a\s+la|at|às|as)\s*([01]?\d|2[0-3])(?::([0-5]\d))?/ig, '')
-                .replace(/\b(\d{4}-\d{2}-\d{2})\b/g, '')
-                .replace(/\s+/g, ' ')
-                .trim();
-            title = stripLeadingCommandWords(cleaned) || 'Evento';
-        }
-
-        if (!date || !start) return null;
-
-        return {
-            action: 'create_event',
-            title,
-            date,
-            start,
-            duration_minutes: 60,
-            description: '',
-            color: '#2563eb',
-        };
-    }
-
     function getAvailableTtsProvidersForHelp() {
-        return Object.keys(ASSISTANT_TTS_PROVIDERS || {})
-            .filter(Boolean)
-            .join(', ');
+        return getAvailableTtsProvidersForHelpFromUtils(ASSISTANT_TTS_PROVIDERS);
     }
 
     function detectAssistantManualTopic(text = '') {
-        const t = normalizeLooseText(text);
-        if (!t) return null;
-
-        const asksProvider = (
-            /(proveedor|provider|provedor|motor)/.test(t)
-            && /(\btts\b|voz|voice|elevenlabs|openai|google)/.test(t)
-        ) || /(ttsprovider|\/ttsprovider)/.test(t);
-        const asksApiKey = /(api key|apikey|key|clave|token)/.test(t) && /(tts|voz|voice|stt|proveedor|provider|deepseek|openai|google|elevenlabs)/.test(t);
-        const asksVoice = (
-            /(voz|voice|ttsvoice|ttsfemale|ttsmale)/.test(t)
-            && /(cambiar|change|trocar|set|usar|use|comando|manual|como|how)/.test(t)
-        ) || /(\/ttsvoice|\/ttsfemale|\/ttsmale)/.test(t);
-        const asksManualEvents = /(manual|formulario|editar|edito|edicion|edicion|agregar|anadir|añadir|crear|evento|evento manual|evento manualmente|edit event|add event)/.test(t)
-            && /(manualmente|manual|formulario|pantalla|lista|calendario|editar|agregar|anadir|añadir|crear)/.test(t);
-        const asksGeneralHelp = /(ayuda|help|manual|comandos|como usar|como se usa|que puedo preguntar|que puedes hacer|consulta)/.test(t);
-
-        if (asksProvider || asksApiKey) return 'tts-provider';
-        if (asksVoice) return 'tts-voice';
-        if (asksManualEvents) return 'events-manual';
-        if (asksGeneralHelp) return 'general-manual';
-        return null;
+        return detectAssistantManualTopicFromUtils(text);
     }
 
     function buildAssistantManualReply(topic = '') {
-        const providers = getAvailableTtsProvidersForHelp();
-        const lang = String(assistantLocale || 'es').slice(0, 2);
-
-        const dict = {
-            es: {
-                'tts-provider': `Puedes cambiar el proveedor TTS desde este chat, sin sección de configuración. Proveedores disponibles: ${providers}. Comandos: /ttsprovider <proveedor> y /ttskey <proveedor> <api_key>. Ejemplo: /ttsprovider openai. Luego: /ttskey openai TU_API_KEY. También puedes usar /ttskey TU_API_KEY para el proveedor TTS actual.`,
-                'tts-voice': 'Para cambiar la voz TTS usa /ttsvoice <voice_id>. Atajos de género: /ttsfemale y /ttsmale. Si necesitas voz específica de ElevenLabs, primero define proveedor/key y luego aplica /ttsvoice con el ID de voz.',
-                'events-manual': 'Para agregar eventos manualmente: completa título, fecha, inicio, fin y guarda. Para editar: toca/clic en un evento de la lista o calendario, se carga en el formulario, modifica y actualiza. Para eliminar: usa el botón eliminar del evento.',
-                'general-manual': `Puedo ayudarte con manual rápido de la app. Ejemplos: “cómo cambiar proveedor TTS”, “qué proveedores TTS hay”, “cómo cargar API key”, “cómo cambiar voz TTS”, “cómo agregar/editar eventos manualmente”. Comandos útiles: /ttsprovider <proveedor>, /ttskey <proveedor> <api_key>, /ttsvoice <voice_id>, /ttsfemale, /ttsmale.`
-            },
-            en: {
-                'tts-provider': `You can change the TTS provider from this chat (no settings screen). Available providers: ${providers}. Commands: /ttsprovider <provider> and /ttskey <provider> <api_key>. Example: /ttsprovider openai, then /ttskey openai YOUR_API_KEY. You can also use /ttskey YOUR_API_KEY for the current provider.`,
-                'tts-voice': 'To change TTS voice use /ttsvoice <voice_id>. Gender shortcuts: /ttsfemale and /ttsmale. For a specific ElevenLabs voice, set provider/key first and then run /ttsvoice with the voice ID.',
-                'events-manual': 'To add events manually: fill title, date, start, end and save. To edit: click an event in the list/calendar, update fields in the form, then save update. To delete: use the event delete button.',
-                'general-manual': 'I can answer quick app manual questions. Ask: “how to change TTS provider”, “which TTS providers are available”, “how to set API key”, “how to change TTS voice”, or “how to add/edit events manually”. Useful commands: /ttsprovider <provider>, /ttskey <provider> <api_key>, /ttsvoice <voice_id>, /ttsfemale, /ttsmale.'
-            },
-            pt: {
-                'tts-provider': `Você pode trocar o provedor TTS por este chat (sem tela de configurações). Provedores disponíveis: ${providers}. Comandos: /ttsprovider <provedor> e /ttskey <provedor> <api_key>. Exemplo: /ttsprovider openai e depois /ttskey openai SUA_API_KEY. Também funciona /ttskey SUA_API_KEY para o provedor atual.`,
-                'tts-voice': 'Para trocar a voz TTS use /ttsvoice <voice_id>. Atalhos de gênero: /ttsfemale e /ttsmale. Para voz específica do ElevenLabs, ajuste provedor/chave e depois use /ttsvoice com o ID da voz.',
-                'events-manual': 'Para adicionar eventos manualmente: preencha título, data, início, fim e salve. Para editar: clique/toque no evento na lista/calendário, ajuste os campos do formulário e atualize. Para excluir: use o botão de excluir do evento.',
-                'general-manual': 'Posso responder dúvidas rápidas do manual do app. Pergunte: “como trocar provedor TTS”, “quais provedores TTS existem”, “como inserir API key”, “como trocar voz TTS” ou “como adicionar/editar eventos manualmente”. Comandos úteis: /ttsprovider <provedor>, /ttskey <provedor> <api_key>, /ttsvoice <voice_id>, /ttsfemale, /ttsmale.'
-            }
-        };
-
-        return dict[lang]?.[topic] || dict.es[topic] || '';
+        return buildAssistantManualReplyFromUtils(topic, assistantLocale, getAvailableTtsProvidersForHelp());
     }
 
     function getAssistantManualHelp(text = '') {
         const topic = detectAssistantManualTopic(text);
         if (!topic) return '';
         return buildAssistantManualReply(topic);
+
     }
 
     function ttsSetupText(key, vars = {}) {
-        const lang = String(assistantLocale || 'es').slice(0, 2);
-        const dict = {
-            es: {
-                askProvider: 'Perfecto, te ayudo a cambiar el proveedor TTS. Proveedores disponibles: {{providers}}. ¿Cuál quieres usar?',
-                askApiKey: 'Genial, usaré {{provider}}. Ahora indícame la API key de ese proveedor.',
-                invalidProvider: 'No reconocí ese proveedor. Opciones válidas: {{providers}}.',
-                apiKeySaved: 'Listo ✅ Guardé la API key de {{provider}} y quedó como proveedor TTS activo.',
-                apiKeyMissing: 'No detecté una API key válida. Escríbela directamente o usa: /ttskey {{provider}} TU_API_KEY',
-                setupCancelled: 'Configuración TTS cancelada.',
-            },
-            en: {
-                askProvider: 'Great, I can help you change the TTS provider. Available providers: {{providers}}. Which one do you want?',
-                askApiKey: 'Great, I will use {{provider}}. Now please provide the API key for that provider.',
-                invalidProvider: 'I could not recognize that provider. Valid options: {{providers}}.',
-                apiKeySaved: 'Done ✅ I saved the API key for {{provider}} and set it as active TTS provider.',
-                apiKeyMissing: 'I could not detect a valid API key. Type it directly or use: /ttskey {{provider}} YOUR_API_KEY',
-                setupCancelled: 'TTS setup cancelled.',
-            },
-            pt: {
-                askProvider: 'Perfeito, te ajudo a trocar o provedor TTS. Provedores disponíveis: {{providers}}. Qual você quer usar?',
-                askApiKey: 'Ótimo, vou usar {{provider}}. Agora informe a API key desse provedor.',
-                invalidProvider: 'Não reconheci esse provedor. Opções válidas: {{providers}}.',
-                apiKeySaved: 'Pronto ✅ Salvei a API key de {{provider}} e defini como provedor TTS ativo.',
-                apiKeyMissing: 'Não detectei uma API key válida. Digite diretamente ou use: /ttskey {{provider}} SUA_API_KEY',
-                setupCancelled: 'Configuração de TTS cancelada.',
-            }
-        };
-        const template = (dict[lang] && dict[lang][key]) || dict.es[key] || key;
-        return Object.entries(vars).reduce((acc, [k, v]) => acc.replaceAll(`{{${k}}}`, String(v ?? '')), template);
+        return ttsSetupTextFromUtils(key, assistantLocale, vars);
     }
 
     function shouldStartTtsSetupFlow(text = '') {
@@ -2574,235 +2364,34 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     }
 
     function assistantShortText(key, vars = {}) {
-        const lang = String(assistantLocale || 'es').slice(0, 2);
-        const dict = {
-            es: {
-                confirmDelete: '¿Confirmas eliminar este evento? Responde "sí" para confirmar o "no" para cancelar.\n- {{event}}',
-                confirmUpdate: '¿Confirmas actualizar este evento? Responde "sí" para confirmar o "no" para cancelar.\nAntes: {{before}}\nDespués: {{after}}',
-                pendingNeedDecision: 'Hay una acción pendiente. Responde "sí" para confirmar o "no" para cancelar.',
-                actionCancelled: 'Acción cancelada.',
-                eventNotFound: 'No encontré un evento que coincida con tu solicitud.',
-                eventAmbiguous: 'Encontré varios eventos posibles. Indica más detalle (fecha/hora) o usa el formulario para seleccionar uno.\n{{options}}',
-                eventUpdated: 'Evento actualizado: {{event}}',
-                eventDeleted: 'Evento eliminado: {{event}}',
-                rescheduleConflict: 'Ese horario entra en conflicto con: {{conflicts}}\nSugerencias: {{suggestions}}',
-                rescheduleNoSuggestion: 'Ese horario entra en conflicto y no encontré huecos cercanos. Indica otra fecha/hora.',
-                attendanceUpdated: 'Asistencia actualizada: {{event}} · {{status}}',
-                attendanceInvalid: 'No entendí el estado de asistencia. Usa: pendiente, confirmado, tentativo o no asiste.',
-            },
-            en: {
-                confirmDelete: 'Do you confirm deleting this event? Reply "yes" to confirm or "no" to cancel.\n- {{event}}',
-                confirmUpdate: 'Do you confirm updating this event? Reply "yes" to confirm or "no" to cancel.\nBefore: {{before}}\nAfter: {{after}}',
-                pendingNeedDecision: 'There is a pending action. Reply "yes" to confirm or "no" to cancel.',
-                actionCancelled: 'Action cancelled.',
-                eventNotFound: 'I could not find a matching event for your request.',
-                eventAmbiguous: 'I found multiple possible events. Please provide more detail (date/time) or use the form to pick one.\n{{options}}',
-                eventUpdated: 'Event updated: {{event}}',
-                eventDeleted: 'Event deleted: {{event}}',
-                rescheduleConflict: 'That time conflicts with: {{conflicts}}\nSuggestions: {{suggestions}}',
-                rescheduleNoSuggestion: 'That time conflicts and I could not find nearby free slots. Please provide another date/time.',
-                attendanceUpdated: 'Attendance updated: {{event}} · {{status}}',
-                attendanceInvalid: 'I could not understand the attendance status. Use: pending, confirmed, tentative, or declined.',
-            },
-            pt: {
-                confirmDelete: 'Você confirma excluir este evento? Responda "sim" para confirmar ou "não" para cancelar.\n- {{event}}',
-                confirmUpdate: 'Você confirma atualizar este evento? Responda "sim" para confirmar ou "não" para cancelar.\nAntes: {{before}}\nDepois: {{after}}',
-                pendingNeedDecision: 'Há uma ação pendente. Responda "sim" para confirmar ou "não" para cancelar.',
-                actionCancelled: 'Ação cancelada.',
-                eventNotFound: 'Não encontrei um evento correspondente ao seu pedido.',
-                eventAmbiguous: 'Encontrei vários eventos possíveis. Informe mais detalhes (data/hora) ou use o formulário para selecionar um.\n{{options}}',
-                eventUpdated: 'Evento atualizado: {{event}}',
-                eventDeleted: 'Evento excluído: {{event}}',
-                rescheduleConflict: 'Esse horário conflita com: {{conflicts}}\nSugestões: {{suggestions}}',
-                rescheduleNoSuggestion: 'Esse horário conflita e não encontrei horários livres próximos. Informe outra data/hora.',
-                attendanceUpdated: 'Presença atualizada: {{event}} · {{status}}',
-                attendanceInvalid: 'Não entendi o status de presença. Use: pendente, confirmado, tentativo ou recusado.',
-            }
-        };
-        const template = (dict[lang] && dict[lang][key]) || dict.es[key] || key;
-        return Object.entries(vars).reduce((acc, [k, v]) => acc.replaceAll(`{{${k}}}`, String(v ?? '')), template);
+        return assistantShortTextFromUtils(key, assistantLocale, vars);
     }
 
-
-
     function formatEventLine(ev = {}) {
-        const title = String(ev.title || 'Evento').trim();
-        const date = String(ev.date || '').trim();
-        const start = String(ev.start || '').trim();
-        const end = String(ev.end || '').trim();
-        const attendance = getAttendanceLabel(ev.attendance);
-        return `${date} ${start}-${end} ${title} [${attendance}]`.trim();
+        return formatEventLineCore(ev, getAttendanceLabel);
     }
 
     function getAttendanceFromAction(action = {}) {
-        return normalizeAttendanceStatus(
-            action.attendance
-            || action.attendance_status
-            || action.rsvp
-            || action.status,
-            ''
-        );
+        return getAttendanceFromActionCore(action, normalizeAttendanceStatus);
     }
 
     function resolveActionCandidates(action = {}, events = []) {
-        if (!Array.isArray(events) || !events.length) return [];
-        const target = action.target || action.where || {};
-
-        const id = String(action.event_id || action.id || target.id || '').trim();
-        if (id) {
-            return events.filter(ev => String(ev.id) === id);
-        }
-
-        const title = normalizeLooseText(
-            action.title
-            || action.event_title
-            || action.event
-            || action.name
-            || action.target_title
-            || target.title
-            || target.event_title
-            || target.event
-            || target.name
-            || ''
-        );
-
-        const rawTargetDate = String(
-            action.target_date
-            || action.current_date
-            || target.date
-            || target.current_date
-            || ''
-        ).trim();
-        const rawDate = rawTargetDate || String(action.date || '').trim();
-        const parsedDate = parseAssistantDateHint(rawDate);
-        const date = /^\d{4}-\d{2}-\d{2}$/.test(parsedDate)
-            ? parsedDate
-            : (/^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : '');
-
-        const rawTargetStart = String(
-            action.target_start
-            || action.current_start
-            || target.start
-            || target.current_start
-            || ''
-        ).trim();
-        const rawStart = rawTargetStart || String(action.start || '').trim();
-        const parsedStart = parseAssistantTimeHint(rawStart);
-        const start = /^\d{2}:\d{2}$/.test(parsedStart)
-            ? parsedStart
-            : (/^\d{2}:\d{2}$/.test(rawStart) ? rawStart : '');
-
-        if (!title && !date && !start) return [];
-
-        const narrowIfAny = (list, predicate) => {
-            const narrowed = list.filter(predicate);
-            return narrowed.length ? narrowed : list;
-        };
-
-        let candidates = [...events];
-        if (title) {
-            candidates = candidates.filter(ev => titleMatchesLoose(ev.title || '', title));
-        }
-        if (date) {
-            candidates = rawTargetDate
-                ? candidates.filter(ev => String(ev.date || '') === date)
-                : narrowIfAny(candidates, ev => String(ev.date || '') === date);
-        }
-        if (start) {
-            candidates = rawTargetStart
-                ? candidates.filter(ev => String(ev.start || '') === start)
-                : narrowIfAny(candidates, ev => String(ev.start || '') === start);
-        }
-        return candidates;
-    }
-
-    function getUpdatePayloadFromAction(action = {}) {
-        const explicit = action.updates || action.set || action.changes || {};
-        const normalizedDate = parseAssistantDateHint(
-            action.new_date
-            || explicit.date
-            || ''
-        );
-        const fromRoot = {
-            title: action.new_title,
-            date: normalizedDate || action.new_date,
-            start: action.new_start,
-            end: action.new_end,
-            description: action.new_description,
-            color: action.new_color,
-            reminder_offset: action.reminder_offset,
-            duration_minutes: action.duration_minutes,
-            attendance: action.new_attendance || action.attendance || action.attendance_status || action.status,
-        };
-        const merged = {
-            ...fromRoot,
-            ...explicit,
-        };
-
-        if (merged.date) {
-            const normalized = parseAssistantDateHint(merged.date);
-            if (normalized) merged.date = normalized;
-        }
-
-        Object.keys(merged).forEach((k) => {
-            if (merged[k] === undefined || merged[k] === null || merged[k] === '') {
-                delete merged[k];
-            }
+        return resolveActionCandidatesCore(action, events, {
+            normalizeLooseText,
+            parseAssistantDateHint,
+            parseAssistantTimeHint,
+            titleMatchesLoose
         });
-        return merged;
     }
 
     function buildUpdateCandidate(event, action) {
-        const updates = getUpdatePayloadFromAction(action);
-        const merged = {
-            ...event,
-            ...updates,
-        };
-
-        const hasStartUpdate = typeof updates.start === 'string' && updates.start.trim() !== '';
-        const hasEndUpdate = typeof updates.end === 'string' && updates.end.trim() !== '';
-        const currentDuration = (() => {
-            const [sh, sm] = String(event.start || '').split(':').map(Number);
-            const [eh, em] = String(event.end || '').split(':').map(Number);
-            if (![sh, sm, eh, em].every(Number.isFinite)) return 60;
-            const startMin = (sh * 60) + sm;
-            const endMin = (eh * 60) + em;
-            return endMin > startMin ? (endMin - startMin) : 60;
-        })();
-
-        if (hasStartUpdate && !hasEndUpdate) {
-            const preferredDuration = Number(updates.duration_minutes);
-            const duration = Number.isFinite(preferredDuration) && preferredDuration > 0
-                ? preferredDuration
-                : currentDuration;
-            const inferredEnd = inferEndFromStart(merged.start, duration);
-            if (inferredEnd) merged.end = inferredEnd;
-        }
-
-        const validation = validateEventPayload({
-            title: merged.title,
-            date: merged.date,
-            start: merged.start,
-            end: merged.end,
-            description: merged.description,
-            color: merged.color,
-            reminder_offset: merged.reminder_offset,
-            duration_minutes: updates.duration_minutes,
-        }, assistantLocale);
-
-        if (!validation.ok) {
-            return { ok: false, error: validation.error };
-        }
-
-        return {
-            ok: true,
-            nextEvent: {
-                ...event,
-                ...validation.data,
-                attendance: normalizeAttendanceStatus(merged.attendance, event.attendance || 'pending'),
-                id: event.id,
-            }
-        };
+        return buildUpdateCandidateCore(event, action, {
+            parseAssistantDateHint,
+            inferEndFromStart,
+            validateEventPayload,
+            normalizeAttendanceStatus,
+            assistantLocale
+        });
     }
 
     function applyAssistantPendingAction() {
@@ -2833,24 +2422,8 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             assistantPendingAction = null;
             return assistantShortText('eventUpdated', { event: formatEventLine(events[index]) });
         }
-
         assistantPendingAction = null;
         return null;
-    }
-
-    function sanitizeAssistantErrorMessage(message = '') {
-        const raw = String(message || '').trim();
-        if (!raw) return tr('assistant.contactError');
-        return raw
-            // evita exponer tokens completos (ej: sk-xxxx...)
-            .replace(/\b(?:sk|dsk|api)[-_][A-Za-z0-9_-]{10,}\b/gi, '[API_KEY]')
-            // evita exponer sufijos mostrados por algunos proveedores
-            .replace(/(ending\s+(?:in|with)\s+)[A-Za-z0-9_-]{2,}/gi, '$1****');
-    }
-
-    function isInvalidApiKeyError(message = '') {
-        const raw = String(message || '');
-        return /(invalid[\s_-]*api[\s_-]*key|api[\s_-]*key[\s_-]*invalid|unauthorized|\b401\b|invalid_auth|authentication)/i.test(raw);
     }
 
     async function handleAssistantSubmit(evt) {
@@ -3331,317 +2904,41 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         return [...base, ...history];
     }
 
-    function handleAssistantAction(content = '', { messageRef, userText = '' } = {}) {
-        const action = extractAssistantAction(content);
-        if (!action) return { handled: false };
-
-        if (action.action === 'confirm_attendance') {
-            return handleAssistantAction(JSON.stringify({ ...action, action: 'set_attendance', attendance: 'confirmed' }), { messageRef, userText });
-        }
-        if (action.action === 'decline_attendance') {
-            return handleAssistantAction(JSON.stringify({ ...action, action: 'set_attendance', attendance: 'declined' }), { messageRef, userText });
-        }
-        if (action.action === 'tentative_attendance') {
-            return handleAssistantAction(JSON.stringify({ ...action, action: 'set_attendance', attendance: 'tentative' }), { messageRef, userText });
-        }
-
-        if (action.action === 'set_attendance' || action.action === 'update_attendance' || action.action === 'rsvp_event') {
-            const events = getEvents();
-            const candidates = resolveActionCandidates(action, events);
-            const nextAttendance = getAttendanceFromAction(action);
-
-            if (!nextAttendance) {
-                const msg = assistantShortText('attendanceInvalid');
-                if (messageRef) {
-                    messageRef.content = msg;
-                    renderAssistantMessages();
-                    saveAssistantHistory();
-                } else {
-                    appendAssistantMessage({ role: 'assistant', content: msg });
-                }
-                return { handled: true, spokenText: msg };
-            }
-
-            if (!candidates.length) {
-                const msg = assistantShortText('eventNotFound');
-                if (messageRef) {
-                    messageRef.content = msg;
-                    renderAssistantMessages();
-                    saveAssistantHistory();
-                } else {
-                    appendAssistantMessage({ role: 'assistant', content: msg });
-                }
-                return { handled: true, spokenText: msg };
-            }
-
-            if (candidates.length > 1) {
-                const options = candidates.slice(0, 5).map(ev => `- ${formatEventLine(ev)}`).join('\n');
-                const msg = assistantShortText('eventAmbiguous', { options });
-                if (messageRef) {
-                    messageRef.content = msg;
-                    renderAssistantMessages();
-                    saveAssistantHistory();
-                } else {
-                    appendAssistantMessage({ role: 'assistant', content: msg });
-                }
-                return { handled: true, spokenText: msg };
-            }
-
-            const current = candidates[0];
-            setEventAttendance(current.id, nextAttendance);
-            const updated = getEvents().find(ev => ev.id === current.id) || { ...current, attendance: nextAttendance };
-            const msg = assistantShortText('attendanceUpdated', {
-                event: formatEventLine(updated),
-                status: getAttendanceLabel(nextAttendance),
-            });
-            if (messageRef) {
-                messageRef.content = msg;
-                renderAssistantMessages();
-                saveAssistantHistory();
-            } else {
-                appendAssistantMessage({ role: 'assistant', content: msg });
-            }
-            return { handled: true, spokenText: msg };
-        }
-
-        if (action.action === 'delete_event') {
-            const events = getEvents();
-            const candidates = resolveActionCandidates(action, events);
-
-            if (!candidates.length) {
-                const msg = assistantShortText('eventNotFound');
-                if (messageRef) {
-                    messageRef.content = msg;
-                    renderAssistantMessages();
-                    saveAssistantHistory();
-                } else {
-                    appendAssistantMessage({ role: 'assistant', content: msg });
-                }
-                return { handled: true, spokenText: msg };
-            }
-
-            if (candidates.length > 1) {
-                const options = candidates.slice(0, 5).map(ev => `- ${formatEventLine(ev)}`).join('\n');
-                const msg = assistantShortText('eventAmbiguous', { options });
-                if (messageRef) {
-                    messageRef.content = msg;
-                    renderAssistantMessages();
-                    saveAssistantHistory();
-                } else {
-                    appendAssistantMessage({ role: 'assistant', content: msg });
-                }
-                return { handled: true, spokenText: msg };
-            }
-
-            const target = candidates[0];
-            assistantPendingAction = {
-                type: 'delete',
-                eventId: target.id,
-            };
-            const msg = assistantShortText('confirmDelete', { event: formatEventLine(target) });
-            if (messageRef) {
-                messageRef.content = msg;
-                renderAssistantMessages();
-                saveAssistantHistory();
-            } else {
-                appendAssistantMessage({ role: 'assistant', content: msg });
-            }
-            return { handled: true, spokenText: msg };
-        }
-
-        if (action.action === 'update_event') {
-            const events = getEvents();
-            const candidates = resolveActionCandidates(action, events);
-
-            if (!candidates.length) {
-                const msg = assistantShortText('eventNotFound');
-                if (messageRef) {
-                    messageRef.content = msg;
-                    renderAssistantMessages();
-                    saveAssistantHistory();
-                } else {
-                    appendAssistantMessage({ role: 'assistant', content: msg });
-                }
-                return { handled: true, spokenText: msg };
-            }
-
-            if (candidates.length > 1) {
-                const options = candidates.slice(0, 5).map(ev => `- ${formatEventLine(ev)}`).join('\n');
-                const msg = assistantShortText('eventAmbiguous', { options });
-                if (messageRef) {
-                    messageRef.content = msg;
-                    renderAssistantMessages();
-                    saveAssistantHistory();
-                } else {
-                    appendAssistantMessage({ role: 'assistant', content: msg });
-                }
-                return { handled: true, spokenText: msg };
-            }
-
-            const current = candidates[0];
-            const updateCandidate = buildUpdateCandidate(current, action);
-            if (!updateCandidate.ok) {
-                const msg = updateCandidate.error || assistantShortText('eventNotFound');
-                if (messageRef) {
-                    messageRef.content = msg;
-                    renderAssistantMessages();
-                    saveAssistantHistory();
-                } else {
-                    appendAssistantMessage({ role: 'assistant', content: msg });
-                }
-                return { handled: true, spokenText: msg };
-            }
-
-            const conflicts = findEventConflicts(updateCandidate.nextEvent, events, current.id);
-            if (conflicts.length) {
-                const conflictText = conflicts.slice(0, 3).map(formatEventLine).join(' | ');
-                const suggestions = suggestRescheduleSlots(updateCandidate.nextEvent, events, {
-                    ignoreEventId: current.id,
-                    maxSuggestions: 3,
-                    stepMinutes: 30,
-                });
-
-                const msg = suggestions.length
-                    ? assistantShortText('rescheduleConflict', {
-                        conflicts: conflictText,
-                        suggestions: suggestions.map(s => `${s.date} ${s.start}-${s.end}`).join(' | '),
-                    })
-                    : assistantShortText('rescheduleNoSuggestion');
-
-                if (messageRef) {
-                    messageRef.content = msg;
-                    renderAssistantMessages();
-                    saveAssistantHistory();
-                } else {
-                    appendAssistantMessage({ role: 'assistant', content: msg });
-                }
-                return { handled: true, spokenText: msg };
-            }
-
-            assistantPendingAction = {
-                type: 'update',
-                eventId: current.id,
-                nextEvent: updateCandidate.nextEvent,
-            };
-
-            const msg = assistantShortText('confirmUpdate', {
-                before: formatEventLine(current),
-                after: formatEventLine(updateCandidate.nextEvent),
-            });
-
-            if (messageRef) {
-                messageRef.content = msg;
-                renderAssistantMessages();
-                saveAssistantHistory();
-            } else {
-                appendAssistantMessage({ role: 'assistant', content: msg });
-            }
-            return { handled: true, spokenText: msg };
-        }
-
-        if (action.action === 'reschedule_event' || action.action === 'reprogram_event') {
-            const target = action.target || action.where || {};
-            const mapped = {
-                ...action,
-                action: 'update_event',
-                new_date: action.new_date || parseAssistantDateHint(action.date || ''),
-                new_start: action.new_start || action.start,
-                new_end: action.new_end || action.end,
-                date: action.target_date || target.date || '',
-                start: action.target_start || target.start || '',
-                title: action.target_title || target.title || action.title || action.event_title || action.event || action.name,
-            };
-
-            if (!mapped.date) delete mapped.date;
-            if (!mapped.start) delete mapped.start;
-
-            const hasExplicitTarget = !!(
-                action.event_id
-                || action.id
-                || target.id
-                || action.target_date
-                || action.target_start
-                || action.target_title
-                || target.date
-                || target.start
-                || target.title
-            );
-
-            if (!hasExplicitTarget) {
-                delete mapped.date;
-                delete mapped.start;
-                delete mapped.end;
-            }
-
-            return handleAssistantAction(JSON.stringify(mapped), { messageRef, userText });
-        }
-
-        if (action.action !== 'create_event') return { handled: false };
-
-        const safeCreateAction = normalizeCreateActionDateForFuture(action, userText);
-
-        const validation = validateEventPayload(safeCreateAction, assistantLocale);
-        if (!validation.ok) {
-            if (messageRef) {
-                messageRef.content = validation.error;
-                renderAssistantMessages();
-                saveAssistantHistory();
-            } else {
-                appendAssistantMessage({ role: 'assistant', content: validation.error });
-            }
-            return { handled: true, spokenText: validation.error };
-        }
-
-        const evt = toEventPayload(validation.data);
-        const events = getEvents();
-        events.push(evt);
-        saveEvents(events);
-        renderAll();
-        try { notifier.scheduleFor(evt); } catch (e) { console.warn('Schedule failed', e); }
-
-        const confirmText = tr('assistant.eventCreated', {
-            title: evt.title,
-            date: evt.date,
-            start: evt.start,
-            end: evt.end,
-        });
-        let finalText = confirmText;
-
-        if (validation?.data?.autoCompletedEnd) {
-            const autoText = tr('assistant.autoEnd', { end: evt.end, minutes: validation?.data?.autoDurationMinutes || 60 });
-            finalText = `${confirmText}\n${autoText}`;
-        }
-
-        if (messageRef) {
-            messageRef.content = finalText;
-            renderAssistantMessages();
-            saveAssistantHistory();
-        } else {
-            appendAssistantMessage({ role: 'assistant', content: finalText });
-        }
-
-        return { handled: true, spokenText: finalText };
-    }
+    const handleAssistantAction = createAssistantActionHandler({
+        extractAssistantAction,
+        parseAssistantDateHint,
+        validateEventPayload,
+        toEventPayload,
+        findEventConflicts,
+        suggestRescheduleSlots,
+        tr,
+        assistantLocaleRef: () => assistantLocale,
+        getEvents,
+        saveEvents,
+        renderAll,
+        notifier,
+        resolveActionCandidates,
+        getAttendanceFromAction,
+        setEventAttendance,
+        getAttendanceLabel,
+        formatEventLine,
+        buildUpdateCandidate,
+        normalizeCreateActionDateForFuture,
+        assistantShortText,
+        appendAssistantMessage,
+        renderAssistantMessages,
+        saveAssistantHistory,
+        setAssistantPendingAction: (value) => { assistantPendingAction = value; }
+    });
+    
 
     function buildAssistantContext() {
-        const events = sortEvents(getEvents());
-        const today = new Date();
-        const todayFloor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-        const upcoming = events
-            .filter(ev => {
-                const d = parseLocalDate(ev.date);
-                return d && d >= todayFloor;
-            })
-            .slice(0, 5);
-
-        if (!upcoming.length) return '';
-
-        const lines = upcoming.map(ev => {
-            const desc = ev.description ? ` — ${ev.description}` : '';
-            const attendance = getAttendanceLabel(ev.attendance);
-            return `- ${ev.date} ${ev.start}-${ev.end} ${ev.title}${desc} [${attendance}]`;
+        return buildAssistantContextCore({
+            sortEvents,
+            getEvents,
+            parseLocalDate,
+            getAttendanceLabel
         });
-        return `Agenda context (max 5 upcoming):\n${lines.join('\n')}`;
     }
 
     function setAssistantStatus(text) {
