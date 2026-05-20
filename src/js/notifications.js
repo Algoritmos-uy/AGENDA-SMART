@@ -11,6 +11,7 @@ const ALERT_SNOOZE_MS = 2 * 60 * 1000;
 const DEFAULT_REMINDER_OFFSETS_S = [900, 1800]; // 15 y 30 min por defecto
 const ASSISTANT_CONFIG_KEY = 'coordinalia-config';
 const ASSISTANT_TTS_GENDER_KEY = 'coordinalia-tts-gender';
+const ASSISTANT_NOTIFICATION_AUDIO_GENDER_KEY = 'coordinalia-notification-audio-gender';
 const NATIVE_CHANNEL_SCHEMA_KEY = 'agenda-native-channel-schema';
 const NATIVE_CHANNEL_SCHEMA_VERSION = '2026-05-custom-audio-v2';
 const EXACT_ALARM_PROMPT_KEY = 'agenda-exact-alarm-prompt-at';
@@ -22,24 +23,24 @@ const ALERT_AUDIO_BASE_BY_MINUTES = new Map([
 
 const ALERT_VIBRATE_PATTERN = [250, 120, 250, 120, 250];
 const ANDROID_NOTIFICATION_CHANNELS = {
-  '30:es:feminine': { id: 'agenda_reminder_30m_es_f_v2', name: 'Recordatorios 30 min',  sound: 'evento_30'      },
-  '30:en:feminine': { id: 'agenda_reminder_30m_en_f_v2', name: '30 min Reminders',      sound: 'evento_30_en'   },
-  '30:pt:feminine': { id: 'agenda_reminder_30m_pt_f_v2', name: 'Lembretes 30 min',      sound: 'evento_30_pt'   },
-  '30:es:masculine': { id: 'agenda_reminder_30m_es_m_v2', name: 'Recordatorios 30 min',  sound: 'm_evento_30_es' },
-  '30:en:masculine': { id: 'agenda_reminder_30m_en_m_v2', name: '30 min Reminders',      sound: 'm_evento_30_en' },
-  '30:pt:masculine': { id: 'agenda_reminder_30m_pt_m_v2', name: 'Lembretes 30 min',      sound: 'm_evento_30_pt' },
-  '15:es:feminine': { id: 'agenda_reminder_15m_es_f_v2', name: 'Recordatorios 15 min',  sound: 'evento_15'      },
-  '15:en:feminine': { id: 'agenda_reminder_15m_en_f_v2', name: '15 min Reminders',      sound: 'evento_15_en'   },
-  '15:pt:feminine': { id: 'agenda_reminder_15m_pt_f_v2', name: 'Lembretes 15 min',      sound: 'evento_15_pt'   },
-  '15:es:masculine': { id: 'agenda_reminder_15m_es_m_v2', name: 'Recordatorios 15 min',  sound: 'm_evento_15_es' },
-  '15:en:masculine': { id: 'agenda_reminder_15m_en_m_v2', name: '15 min Reminders',      sound: 'm_evento_15_en' },
-  '15:pt:masculine': { id: 'agenda_reminder_15m_pt_m_v2', name: 'Lembretes 15 min',      sound: 'm_evento_15_pt' },
+  '30:es:feminine': { id: 'agenda_reminder_30m_es_f_v2', name: 'Recordatorios 30 min', sound: 'evento_30' },
+  '30:en:feminine': { id: 'agenda_reminder_30m_en_f_v2', name: '30 min Reminders', sound: 'evento_30_en' },
+  '30:pt:feminine': { id: 'agenda_reminder_30m_pt_f_v2', name: 'Lembretes 30 min', sound: 'evento_30_pt' },
+  '30:es:masculine': { id: 'agenda_reminder_30m_es_m_v2', name: 'Recordatorios 30 min', sound: 'm_evento_30_es' },
+  '30:en:masculine': { id: 'agenda_reminder_30m_en_m_v2', name: '30 min Reminders', sound: 'm_evento_30_en' },
+  '30:pt:masculine': { id: 'agenda_reminder_30m_pt_m_v2', name: 'Lembretes 30 min', sound: 'm_evento_30_pt' },
+  '15:es:feminine': { id: 'agenda_reminder_15m_es_f_v2', name: 'Recordatorios 15 min', sound: 'evento_15' },
+  '15:en:feminine': { id: 'agenda_reminder_15m_en_f_v2', name: '15 min Reminders', sound: 'evento_15_en' },
+  '15:pt:feminine': { id: 'agenda_reminder_15m_pt_f_v2', name: 'Lembretes 15 min', sound: 'evento_15_pt' },
+  '15:es:masculine': { id: 'agenda_reminder_15m_es_m_v2', name: 'Recordatorios 15 min', sound: 'm_evento_15_es' },
+  '15:en:masculine': { id: 'agenda_reminder_15m_en_m_v2', name: '15 min Reminders', sound: 'm_evento_15_en' },
+  '15:pt:masculine': { id: 'agenda_reminder_15m_pt_m_v2', name: 'Lembretes 15 min', sound: 'm_evento_15_pt' },
   'custom:es:feminine': { id: 'agenda_reminder_custom_es_f_v2', name: 'Recordatorios programados', sound: 'f_evento_es' },
-  'custom:en:feminine': { id: 'agenda_reminder_custom_en_f_v2', name: 'Scheduled reminders',      sound: 'f_evento_en' },
-  'custom:pt:feminine': { id: 'agenda_reminder_custom_pt_f_v2', name: 'Lembretes programados',    sound: 'f_evento_pt' },
+  'custom:en:feminine': { id: 'agenda_reminder_custom_en_f_v2', name: 'Scheduled reminders', sound: 'f_evento_en' },
+  'custom:pt:feminine': { id: 'agenda_reminder_custom_pt_f_v2', name: 'Lembretes programados', sound: 'f_evento_pt' },
   'custom:es:masculine': { id: 'agenda_reminder_custom_es_m_v2', name: 'Recordatorios programados', sound: 'm_evento_es' },
-  'custom:en:masculine': { id: 'agenda_reminder_custom_en_m_v2', name: 'Scheduled reminders',      sound: 'm_evento_en' },
-  'custom:pt:masculine': { id: 'agenda_reminder_custom_pt_m_v2', name: 'Lembretes programados',    sound: 'm_evento_pt' },
+  'custom:en:masculine': { id: 'agenda_reminder_custom_en_m_v2', name: 'Scheduled reminders', sound: 'm_evento_en' },
+  'custom:pt:masculine': { id: 'agenda_reminder_custom_pt_m_v2', name: 'Lembretes programados', sound: 'm_evento_pt' },
 };
 
 const LEGACY_ANDROID_CHANNEL_IDS = [
@@ -141,17 +142,36 @@ function getAlertTtsGenderPreference() {
   try {
     const rawConfig = localStorage.getItem(ASSISTANT_CONFIG_KEY);
     const parsed = rawConfig ? JSON.parse(rawConfig) : {};
+
+    // 1) prioridad: preferencia específica para audio de notificaciones
+    const fromNotificationConfig = normalizeAlertTtsGender(
+      parsed?.notificationAudioGender || parsed?.notification_audio_gender || ''
+    );
+    if (fromNotificationConfig) return fromNotificationConfig;
+
+    // 2) fallback: tts general
     const fromConfig = normalizeAlertTtsGender(parsed?.ttsGender || '');
     if (fromConfig) return fromConfig;
   } catch (_e) {
     // no-op
   }
+
   try {
-    const fromStorage = normalizeAlertTtsGender(localStorage.getItem(ASSISTANT_TTS_GENDER_KEY) || '');
+    // 3) storage específico de notificaciones
+    const fromNotificationStorage = normalizeAlertTtsGender(
+      localStorage.getItem(ASSISTANT_NOTIFICATION_AUDIO_GENDER_KEY) || ''
+    );
+    if (fromNotificationStorage) return fromNotificationStorage;
+
+    // 4) fallback legacy
+    const fromStorage = normalizeAlertTtsGender(
+      localStorage.getItem(ASSISTANT_TTS_GENDER_KEY) || ''
+    );
     if (fromStorage) return fromStorage;
   } catch (_e) {
     // no-op
   }
+
   return 'feminine';
 }
 
@@ -253,13 +273,13 @@ export class Notifier {
     this.timers = new Map();        // idEvento:minutos -> timeoutId
     this.snoozeTimers = new Map();  // idEvento:minutos -> timeoutId
     this.permission = 'default';
-  this.locale = normalizeLocale(globalThis?.navigator?.language || 'es');
+    this.locale = normalizeLocale(globalThis?.navigator?.language || 'es');
     this.activeAlert = null;
     this.alertLoopTimer = null;
     this.alertModalEl = null;
     this.activeAudio = null;
     this.nativeIds = new Map();
-  this.nativeMetaById = new Map();
+    this.nativeMetaById = new Map();
     this.handledNativeNotificationIds = new Set();
     this.nativeListenersBound = false;
     this.nativeChannelsReady = false;
@@ -402,7 +422,7 @@ export class Notifier {
       this.nativeIds.clear();
       this.nativeMetaById.clear();
       if (ids.length) {
-        localNotifications.cancel({ notifications: ids.map((id) => ({ id })) }).catch(() => {});
+        localNotifications.cancel({ notifications: ids.map((id) => ({ id })) }).catch(() => { });
       }
     }
   }
@@ -434,7 +454,7 @@ export class Notifier {
         this.nativeMetaById.delete(id);
       }
       if (idsToCancel.length) {
-        localNotifications.cancel({ notifications: idsToCancel.map((id) => ({ id })) }).catch(() => {});
+        localNotifications.cancel({ notifications: idsToCancel.map((id) => ({ id })) }).catch(() => { });
       }
     }
   }
@@ -454,14 +474,14 @@ export class Notifier {
     const rawOffsets = Array.isArray(event.reminder_offsets) && event.reminder_offsets.length > 0
       ? event.reminder_offsets
       : (Number.isFinite(Number(event?.reminder_offset)) && Number(event.reminder_offset) > 0
-          ? [Number(event.reminder_offset)]
-          : DEFAULT_REMINDER_OFFSETS_S);
+        ? [Number(event.reminder_offset)]
+        : DEFAULT_REMINDER_OFFSETS_S);
 
     const offsets = rawOffsets.map(Number).filter(v => Number.isFinite(v) && v > 0);
     if (offsets.length === 0) return;
 
-  const nativePlugin = this._getNativePluginSync();
-  const shouldUseNativeSchedule = !!nativePlugin && this._isAndroidRuntime();
+    const nativePlugin = this._getNativePluginSync();
+    const shouldUseNativeSchedule = !!nativePlugin && this._isAndroidRuntime();
 
     for (const offsetSeconds of offsets) {
       const reminderMinutes = Math.round(offsetSeconds / 60);

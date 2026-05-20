@@ -238,6 +238,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
     const ASSISTANT_ANDROID_TTS_MODEL_KEY = 'coordinalia-android-tts-model';
     const ASSISTANT_ANDROID_TTS_VOICE_KEY = 'coordinalia-android-tts-voice';
     const ASSISTANT_TTS_GENDER_KEY = 'coordinalia-tts-gender';
+    const ASSISTANT_NOTIFICATION_AUDIO_GENDER_KEY = 'coordinalia-notification-audio-gender';
     const ASSISTANT_ANDROID_DEFAULT_TTS_API_URL = 'https://api.elevenlabs.io/v1';
     const ASSISTANT_ANDROID_DEFAULT_TTS_MODEL = 'eleven_v3';
     const ASSISTANT_ANDROID_LOCAL_MALE_TTS_VOICE = 'es-us-x-sfb-local';
@@ -536,6 +537,20 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             // no-op
         }
         return value;
+    }
+
+    function saveAssistantNotificationAudioGender(gender = 'feminine') {
+        const normalized = String(gender || '').toLowerCase() === 'masculine' ? 'masculine' : 'feminine';
+
+        try {
+            localStorage.setItem(ASSISTANT_NOTIFICATION_AUDIO_GENDER_KEY, normalized);
+        } catch (_e) {
+            // no-op
+        }
+
+        const cfg = getAssistantConfig();
+        cfg.notificationAudioGender = normalized;
+        saveAssistantConfig(cfg);
     }
 
     async function callAssistantAndroid(messages = [], options = {}) {
@@ -2578,6 +2593,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             const cfg = getAssistantConfig();
             const selectedProvider = normalizeTtsProviderValue(assistantTtsProvider || cfg.ttsProvider || 'auto') || 'auto';
             saveAssistantTtsGender('feminine');
+            saveAssistantNotificationAudioGender('feminine');
             let voice = saveAndroidAssistantTtsVoice(ASSISTANT_ANDROID_FEMALE_TTS_VOICE);
             if (selectedProvider === 'fish') {
                 cfg.androidTtsModel = ASSISTANT_FISH_DEFAULT_TTS_MODEL;
@@ -2597,7 +2613,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             const cfg = getAssistantConfig();
             const selectedProvider = normalizeTtsProviderValue(assistantTtsProvider || cfg.ttsProvider || 'auto') || 'auto';
             saveAssistantTtsGender('masculine');
-
+            saveAssistantNotificationAudioGender('masculine');
             let currentVoice = '';
             if (selectedProvider === 'fish') {
                 cfg.androidTtsModel = ASSISTANT_FISH_DEFAULT_TTS_MODEL;
@@ -2930,7 +2946,7 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
         saveAssistantHistory,
         setAssistantPendingAction: (value) => { assistantPendingAction = value; }
     });
-    
+
 
     function buildAssistantContext() {
         return buildAssistantContextCore({
