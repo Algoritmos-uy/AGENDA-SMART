@@ -38,19 +38,13 @@
       "output": "dist"
     },
     "win": {
-      "target": [
-        "nsis",
-        "portable"
-      ],
-      "icon": "assets/icons/agenda.ico"
+      "target": ["nsis", "portable"],
+      "icon": "assets/icons/AgendaIA-Smart-c.ico"
     },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "icon": "assets/icons/agenda.png",
-      "category": "Office"
+    "nsis": {
+      "installerIcon": "assets/icons/AgendaIA-Smart-c.ico",
+      "uninstallerIcon": "assets/icons/AgendaIA-Smart-c.ico",
+      "installerHeaderIcon": "assets/icons/AgendaIA-Smart-c.ico"
     }
   },
   "engines": {

@@ -112,6 +112,30 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
 // Módulo IIFE: aísla la lógica de la agenda en un ámbito propio.
 (() => {
+    function applyRuntimePlatformClass() {
+        const html = document.documentElement;
+        if (!html) return;
+
+        const platform = String(window?.Capacitor?.getPlatform?.() || '').toLowerCase();
+        const ua = String(navigator?.userAgent || '');
+
+        html.classList.remove('platform-web', 'platform-electron', 'platform-android');
+
+        if (platform === 'android' || /android/i.test(ua)) {
+            html.classList.add('platform-android');
+            return;
+        }
+
+        if (ua.includes('Electron')) {
+            html.classList.add('platform-electron');
+            return;
+        }
+
+        html.classList.add('platform-web');
+    }
+
+    applyRuntimePlatformClass();
+
     const notifier = new Notifier();
 
     // Persistencia: preferir store nativo (IPC) y hacer fallback a localStorage.

@@ -38,7 +38,7 @@ function configureMediaPermissions() {
 }
 
 function createWindow({ startHidden = false } = {}) {
-  const iconName = process.platform === 'win32' ? 'agenda.ico' : 'agenda.png';
+  const iconName = process.platform === 'win32' ? 'AgendaIA-Smart-c.ico' : 'agenda.png';
   const iconPath = path.join(app.getAppPath(), 'assets', 'icons', iconName);
   const indexPath = path.join(app.getAppPath(), 'index.html');
 
@@ -185,7 +185,7 @@ ipcMain.handle('events:save', async (_event, list = []) => {
 });
 
 function createTray() {
-  const iconName = process.platform === 'win32' ? 'agenda.ico' : 'agenda.png';
+  const iconName = process.platform === 'win32' ? 'AgendaIA-Smart-c.ico' : 'agenda.png';
   const iconPath = path.join(app.getAppPath(), 'assets', 'icons', iconName);
   tray = new Tray(iconPath);
   tray.setToolTip('AgendaIA Smart');
