@@ -253,8 +253,77 @@
     margin-top: 0.75rem;
 }
 
-/* Ocultar descarga en Electron */
+/* Ocultar descarga en Electron y Android */
 html.platform-electron #downloadAppLink,
-html.platform-electron #downloadAppModal {
+html.platform-electron #downloadAppModal,
+html.platform-android #downloadAppLink,
+html.platform-android #downloadAppModal {
     display: none !important;
+}
+
+/* Ocultar "Descargar app" en navegador móvil */
+@media (max-width: 899px) {
+    html.platform-web #downloadAppLink,
+    html.platform-web #downloadAppModal {
+        display: none !important;
+    }
+}
+
+.playstore-cta {
+    display: flex;
+    justify-content: center;
+    margin: 1rem 0 0;
+}
+
+.playstore-cta__btn {
+    width: min(100%, 520px);
+    min-height: 46px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    background: var(--color-surface, #fff);
+    color: var(--color-text);
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.playstore-cta__btn:hover {
+    filter: brightness(0.98);
+}
+
+.playstore-cta__icon {
+    flex: 0 0 auto;
+}
+
+/* Mostrar solo en navegador móvil */
+@media (min-width: 900px) {
+    .playstore-cta {
+        display: none;
+    }
+}
+
+/* Oculto en Electron y Capacitor Android */
+html.platform-electron .playstore-cta,
+html.platform-android .playstore-cta {
+    display: none !important;
+}
+
+/* Micro-ajuste: separación consistente en panel agenda */
+.panel--agenda {
+    display: flex;
+    flex-direction: column;
+}
+
+.panel--agenda .agenda {
+    flex: 1 1 auto;
+}
+
+.panel--agenda .playstore-cta {
+    margin-top: var(--space-4, 1rem);
+    padding-top: var(--space-3, 0.75rem);
+    border-top: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
 }
