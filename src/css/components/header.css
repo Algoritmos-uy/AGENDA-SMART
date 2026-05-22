@@ -246,3 +246,15 @@
         min-width: auto;
     }
 }
+
+.download-modal__actions {
+    display: grid;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+
+/* Ocultar descarga en Electron */
+html.platform-electron #downloadAppLink,
+html.platform-electron #downloadAppModal {
+    display: none !important;
+}

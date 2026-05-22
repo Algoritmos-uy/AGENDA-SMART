@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +9,7 @@
     <link rel="stylesheet" href="src/css/styles.css">
     <link rel="stylesheet" href="src/css/theme.css">
 </head>
+
 <body class="page">
     <div class="page__shell">
         <header class="site-header">
@@ -16,12 +18,24 @@
                     <img src="assets/icons/AgendaIA-Smart-c.ico" alt="" class="brand-mark__icon">
                 </div>
                 <h1 data-i18n="app.title">AgendaIA Smart</h1>
+                <div class="site-header__auth-links" id="siteHeaderAuthLinks">
+                    <button type="button" class="btn btn--ghost btn--sm" id="authLoginLink">Iniciar sesión</button>
+                    <button type="button" class="btn btn--primary btn--sm" id="authRegisterLink">Registrarse</button>
+                    <button type="button" class="btn btn--ghost btn--sm" id="downloadAppLink">Descargar app</button>
+                </div>
+
+                <div class="site-header__auth-user is-hidden" id="siteHeaderAuthUser">
+                    <span class="site-header__auth-name" id="authUserName">Usuario</span>
+                    <button type="button" class="btn btn--ghost btn--sm" id="authLogoutBtn">Salir</button>
+                </div>
                 <div class="developer-tag">
-                    <span class="developer-tag__label" data-i18n="app.developedBy">Desarrollado por:</span>
-                    <a href="https://www.algoritmos.uy" target="_blank" rel="noreferrer noopener" class="developer-tag__logo" aria-label="Algoritmos Uy" data-i18n-aria-label="app.companyAria">
+                    <!--<span class="developer-tag__label" data-i18n="app.developedBy">Desarrollado por:</span>-->
+                    <a href="https://www.algoritmos.uy" target="_blank" rel="noreferrer noopener"
+                        class="developer-tag__logo" aria-label="Algoritmos Uy" data-i18n-aria-label="app.companyAria">
                         <img src="assets/logos/wj-software.png" alt="Logo Algoritmos Uy">
                     </a>
                 </div>
+
             </div>
             <div class="site-header__controls">
                 <label class="control">
@@ -31,14 +45,21 @@
                 <div class="header-clock" aria-label="Hora actual" data-i18n-aria-label="header.currentTimeAria">
                     <span id="live-clock" class="header-clock__time">--:--:--</span>
                 </div>
-                <div class="view-switch" role="group" aria-label="Cambiar vista" data-i18n-aria-label="header.switchViewAria">
-                    <button class="btn btn--ghost is-active" data-target="day" aria-pressed="true" data-i18n="header.viewDaily">Diaria</button>
-                    <button class="btn btn--ghost" data-target="week" aria-pressed="false" data-i18n="header.viewWeekly">Semanal</button>
-                    <button class="btn btn--ghost" data-target="month" aria-pressed="false" data-i18n="header.viewMonthly">Mensual</button>
+                <div class="view-switch" role="group" aria-label="Cambiar vista"
+                    data-i18n-aria-label="header.switchViewAria">
+                    <button class="btn btn--ghost is-active" data-target="day" aria-pressed="true"
+                        data-i18n="header.viewDaily">Diaria</button>
+                    <button class="btn btn--ghost" data-target="week" aria-pressed="false"
+                        data-i18n="header.viewWeekly">Semanal</button>
+                    <button class="btn btn--ghost" data-target="month" aria-pressed="false"
+                        data-i18n="header.viewMonthly">Mensual</button>
                 </div>
-                <button class="btn btn--ghost theme-toggle" id="theme-toggle" aria-pressed="false" type="button" data-i18n="header.themeToggle">Oscuro</button>
-                <span id="app-version" class="badge" aria-label="Versión de la aplicación" data-i18n-aria-label="header.appVersionAria"></span>
-                <button class="btn btn--primary assistant-trigger" id="assistant-open" type="button" aria-haspopup="dialog" aria-controls="assistant-modal">
+                <button class="btn btn--ghost theme-toggle" id="theme-toggle" aria-pressed="false" type="button"
+                    data-i18n="header.themeToggle">Oscuro</button>
+                <span id="app-version" class="badge" aria-label="Versión de la aplicación"
+                    data-i18n-aria-label="header.appVersionAria"></span>
+                <button class="btn btn--primary assistant-trigger" id="assistant-open" type="button"
+                    aria-haspopup="dialog" aria-controls="assistant-modal">
                     <img src="assets/icons/chat-icon.png" alt="" class="assistant-trigger__icon" aria-hidden="true">
                     <span data-i18n="header.assistant">CoordinalIA</span>
                 </button>
@@ -49,13 +70,15 @@
             <section class="panel panel--form">
                 <div class="panel__header">
                     <h2 data-i18n="form.title">Nuevo evento</h2>
-                    <p class="panel__subtitle" data-i18n="form.subtitle">Crea, edita o elimina eventos. Se guardan localmente.</p>
+                    <p class="panel__subtitle" data-i18n="form.subtitle">Crea, edita o elimina eventos. Se guardan
+                        localmente.</p>
                 </div>
                 <form id="event-form" class="form">
                     <input type="hidden" id="event-id" name="event-id">
                     <div class="form__row">
                         <label class="control" for="title" data-i18n="form.fieldTitle">Título</label>
-                        <input type="text" id="title" name="title" required placeholder="Ej. Reunión con el equipo" data-i18n-placeholder="form.placeholderTitle">
+                        <input type="text" id="title" name="title" required placeholder="Ej. Reunión con el equipo"
+                            data-i18n-placeholder="form.placeholderTitle">
                     </div>
                     <div class="form__row form__row--inline">
                         <label class="control" for="date" data-i18n="form.fieldDate">Fecha</label>
@@ -69,7 +92,9 @@
                     </div>
                     <div class="form__row">
                         <label class="control" for="description" data-i18n="form.fieldDescription">Descripción</label>
-                        <textarea id="description" name="description" rows="3" placeholder="Notas u objetivos del evento" data-i18n-placeholder="form.placeholderDescription"></textarea>
+                        <textarea id="description" name="description" rows="3"
+                            placeholder="Notas u objetivos del evento"
+                            data-i18n-placeholder="form.placeholderDescription"></textarea>
                     </div>
                     <div class="form__row">
                         <span class="control" data-i18n="form.fieldReminder">Recordatorio</span>
@@ -97,16 +122,9 @@
                         </div>
                         <div id="reminder-custom-wrapper" class="reminder-custom-wrapper">
                             <label class="control" for="reminder-custom" data-i18n="form.customMinutes">Minutos</label>
-                            <input
-                                type="number"
-                                id="reminder-custom"
-                                name="reminder-custom"
-                                min="1"
-                                step="1"
-                                inputmode="numeric"
-                                placeholder="Ej. 20"
-                                data-i18n-placeholder="form.placeholderCustomMinutes"
-                            >
+                            <input type="number" id="reminder-custom" name="reminder-custom" min="1" step="1"
+                                inputmode="numeric" placeholder="Ej. 20"
+                                data-i18n-placeholder="form.placeholderCustomMinutes">
                         </div>
                     </div>
                     <div class="form__row form__row--inline">
@@ -114,8 +132,10 @@
                         <input type="color" id="color" name="color" value="#2563eb">
 
                         <div class="form__actions">
-                            <button type="submit" class="btn btn--primary" id="submit-btn" data-i18n="form.save">Guardar evento</button>
-                            <button type="reset" class="btn btn--ghost" id="reset-btn" data-i18n="form.cancel">Cancelar</button>
+                            <button type="submit" class="btn btn--primary" id="submit-btn" data-i18n="form.save">Guardar
+                                evento</button>
+                            <button type="reset" class="btn btn--ghost" id="reset-btn"
+                                data-i18n="form.cancel">Cancelar</button>
                         </div>
                     </div>
                     <p class="status" id="form-status" role="status" aria-live="polite"></p>
@@ -142,9 +162,12 @@
                                 <h3 data-i18n="calendar.weekly">Vista semanal</h3>
                                 <p class="muted" id="weekly-caption"></p>
                             </div>
-                            <div class="agenda-nav" role="group" aria-label="Navegar semanas" data-i18n-aria-label="calendar.navWeeksAria">
-                                <button class="btn btn--ghost" id="weekly-prev" type="button" data-i18n="calendar.prevWeek">Semana anterior</button>
-                                <button class="btn btn--ghost" id="weekly-next" type="button" data-i18n="calendar.nextWeek">Semana siguiente</button>
+                            <div class="agenda-nav" role="group" aria-label="Navegar semanas"
+                                data-i18n-aria-label="calendar.navWeeksAria">
+                                <button class="btn btn--ghost" id="weekly-prev" type="button"
+                                    data-i18n="calendar.prevWeek">Semana anterior</button>
+                                <button class="btn btn--ghost" id="weekly-next" type="button"
+                                    data-i18n="calendar.nextWeek">Semana siguiente</button>
                             </div>
                         </div>
                         <div id="weekly-grid" class="week-grid"></div>
@@ -156,9 +179,12 @@
                                 <h3 data-i18n="calendar.monthly">Vista mensual</h3>
                                 <p class="muted" id="monthly-caption"></p>
                             </div>
-                            <div class="agenda-nav" role="group" aria-label="Navegar meses" data-i18n-aria-label="calendar.navMonthsAria">
-                                <button class="btn btn--ghost" id="monthly-prev" type="button" data-i18n="calendar.prevMonth">Mes anterior</button>
-                                <button class="btn btn--ghost" id="monthly-next" type="button" data-i18n="calendar.nextMonth">Mes siguiente</button>
+                            <div class="agenda-nav" role="group" aria-label="Navegar meses"
+                                data-i18n-aria-label="calendar.navMonthsAria">
+                                <button class="btn btn--ghost" id="monthly-prev" type="button"
+                                    data-i18n="calendar.prevMonth">Mes anterior</button>
+                                <button class="btn btn--ghost" id="monthly-next" type="button"
+                                    data-i18n="calendar.nextMonth">Mes siguiente</button>
                             </div>
                         </div>
                         <div class="month-grid" id="monthly-grid"></div>
@@ -178,7 +204,7 @@
 
     <div id="assistant-modal" class="modal is-hidden" role="dialog" aria-modal="true" aria-labelledby="assistant-title">
         <div class="modal__backdrop" data-dismiss="assistant"></div>
-    <div class="modal__dialog" role="document" tabindex="-1">
+        <div class="modal__dialog" role="document" tabindex="-1">
             <header class="modal__header">
                 <div class="modal__title-group">
                     <span class="modal__icon" aria-hidden="true">
@@ -186,36 +212,122 @@
                     </span>
                     <h2 id="assistant-title">CoordinalIA</h2>
                 </div>
-                <button class="btn btn--ghost modal__close" id="assistant-close" aria-label="Cerrar" data-i18n-aria-label="assistant.close">✕</button>
+                <button class="btn btn--ghost modal__close" id="assistant-close" aria-label="Cerrar"
+                    data-i18n-aria-label="assistant.close">✕</button>
             </header>
             <div class="modal__body">
                 <div class="assistant-chat">
                     <div id="assistant-thread" class="assistant-thread" aria-live="polite"></div>
                     <form id="assistant-form" class="assistant-form">
-                        <label class="sr-only" for="assistant-input" data-i18n="assistant.messageLabel">Mensaje para CoordinalIA</label>
-                        <textarea id="assistant-input" rows="3" placeholder="Escribe tu mensaje..." data-i18n-placeholder="assistant.placeholder" required></textarea>
+                        <label class="sr-only" for="assistant-input" data-i18n="assistant.messageLabel">Mensaje para
+                            CoordinalIA</label>
+                        <textarea id="assistant-input" rows="3" placeholder="Escribe tu mensaje..."
+                            data-i18n-placeholder="assistant.placeholder" required></textarea>
                         <div class="assistant-form__actions">
                             <span id="assistant-status" class="muted" role="status" aria-live="polite"></span>
                             <div class="assistant-form__buttons">
-                                <label class="assistant-toggle" for="assistant-tts-toggle" title="Activar/desactivar voz de respuesta" data-i18n-title="assistant.ttsToggleTitleOn">
+                                <label class="assistant-toggle" for="assistant-tts-toggle"
+                                    title="Activar/desactivar voz de respuesta"
+                                    data-i18n-title="assistant.ttsToggleTitleOn">
                                     <input id="assistant-tts-toggle" type="checkbox" checked>
                                     <span data-i18n="assistant.ttsToggle">Voz IA</span>
                                 </label>
-                                <button class="btn btn--ghost" id="assistant-voice" type="button" title="Activar micrófono" data-i18n-title="assistant.voiceTitle" data-i18n="assistant.voiceButton">🎤 Hablar</button>
-                                <button class="btn btn--ghost" id="assistant-clear" type="button" data-i18n="assistant.clear">Vaciar chat</button>
+                                <button class="btn btn--ghost" id="assistant-voice" type="button"
+                                    title="Activar micrófono" data-i18n-title="assistant.voiceTitle"
+                                    data-i18n="assistant.voiceButton">🎤 Hablar</button>
+                                <button class="btn btn--ghost" id="assistant-clear" type="button"
+                                    data-i18n="assistant.clear">Vaciar chat</button>
                             </div>
                         </div>
                     </form>
                 </div>
             </div>
+
+            <!-- FOOTER -->
             <footer class="modal__footer">
-                <button class="btn btn--primary" id="assistant-send" type="submit" form="assistant-form" data-i18n="assistant.send">Enviar</button>
-                <button class="btn btn--primary" id="assistant-close-footer" type="button" data-i18n="assistant.close">Cerrar</button>
+                <button class="btn btn--primary" id="assistant-send" type="submit" form="assistant-form"
+                    data-i18n="assistant.send">Enviar</button>
+                <button class="btn btn--primary" id="assistant-close-footer" type="button"
+                    data-i18n="assistant.close">Cerrar</button>
             </footer>
         </div>
     </div>
+
+    <!-- Modal Registro (FUERA de assistant-modal) -->
+    <div class="auth-modal is-hidden" id="authRegisterModal" aria-hidden="true">
+        <div class="auth-modal__backdrop" data-auth-close="register"></div>
+        <section class="auth-modal__panel" role="dialog" aria-modal="true" aria-labelledby="authRegisterTitle">
+            <button class="auth-modal__close" type="button" data-auth-close="register" aria-label="Cerrar">✕</button>
+            <h3 id="authRegisterTitle">Crear cuenta</h3>
+
+            <form id="authRegisterForm" class="auth-form">
+                <label class="control">
+                    <span>Nombre</span>
+                    <input type="text" name="name" required minlength="2" maxlength="80" />
+                </label>
+                <label class="control">
+                    <span>Email</span>
+                    <input type="email" name="email" required />
+                </label>
+                <label class="control">
+                    <span>Contraseña</span>
+                    <input type="password" name="password" required minlength="8" />
+                </label>
+
+                <button type="submit" class="btn btn--primary">Registrar</button>
+                <button type="button" class="btn btn--ghost" id="authRegisterGoogleBtn">Continuar con
+                    Google</button>
+                <p class="auth-form__error" id="authRegisterError"></p>
+            </form>
+        </section>
+    </div>
+
+    <!-- Modal Login (FUERA de assistant-modal) -->
+    <div class="auth-modal is-hidden" id="authLoginModal" aria-hidden="true">
+        <div class="auth-modal__backdrop" data-auth-close="login"></div>
+        <section class="auth-modal__panel" role="dialog" aria-modal="true" aria-labelledby="authLoginTitle">
+            <button class="auth-modal__close" type="button" data-auth-close="login" aria-label="Cerrar">✕</button>
+            <h3 id="authLoginTitle">Iniciar sesión</h3>
+
+            <form id="authLoginForm" class="auth-form">
+                <label class="control">
+                    <span>Email</span>
+                    <input type="email" name="email" required />
+                </label>
+                <label class="control">
+                    <span>Contraseña</span>
+                    <input type="password" name="password" required minlength="8" />
+                </label>
+
+                <button type="submit" class="btn btn--primary">Iniciar sesión</button>
+                <button type="button" class="btn btn--ghost" id="authLoginGoogleBtn">Continuar con
+                    Google</button>
+                <p class="auth-form__error" id="authLoginError"></p>
+            </form>
+        </section>
+    </div>
+
+    <!-- Modal Descargas (fuera de assistant-modal) -->
+    <div class="auth-modal is-hidden" id="downloadAppModal" aria-hidden="true">
+        <div class="auth-modal__backdrop" data-download-close="modal"></div>
+        <section class="auth-modal__panel" role="dialog" aria-modal="true" aria-labelledby="downloadAppTitle">
+            <button class="auth-modal__close" type="button" data-download-close="modal" aria-label="Cerrar">✕</button>
+            <h3 id="downloadAppTitle">Descarga para Windows</h3>
+
+            <div class="download-modal__actions">
+                <a class="btn btn--primary" href="downloads/AgendaIA-Smart-Installer.rar" download>
+                    Descargar instalador (.exe)
+                </a>
+                <a class="btn btn--ghost" href="downloads/AgendaIA-Smart-Portable.rar" download>
+                    Descargar portable
+                </a>
+            </div>
+        </section>
+    </div>
+
     <script src="src/js/theme.js" defer></script>
     <script type="module" src="src/js/notifications.js" defer></script>
     <script type="module" src="src/js/scripts.js" defer></script>
 </body>
+
 </html>

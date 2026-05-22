@@ -1,4 +1,6 @@
 import { Notifier } from './notifications.js';
+import { initAuthModals } from './modules/authModalController.js';
+import { initDownloadModal } from './modules/downloadModalController.js';
 
 import {
     canPromptAndroidManualApiKey,
@@ -733,6 +735,8 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
             hydrateVersion();
             setupAssistantModal();
+            initAuthModals();
+            initDownloadModal();
             appInitialized = true;
         } finally {
             initInFlight = false;
@@ -2782,9 +2786,12 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
 
 
         let cfg = getAssistantConfig();
-        const canUseBridgeStream = typeof window.appBridge?.chatStream === 'function' && typeof window.appBridge?.onAssistantChunk === 'function';
+        const canUseBridgeStream = typeof window.appBridge?.chatStream === 'function'
+            && typeof window.appBridge?.onAssistantChunk === 'function';
         const canUseBridgeChat = typeof window.appBridge?.chat === 'function';
-        const canUseAndroidNativeChat = !canUseBridgeStream && !canUseBridgeChat && isAndroidRuntime();
+        const isAndroid = isAndroidRuntime();
+        const canUseAndroidNativeChat = !canUseBridgeStream && !canUseBridgeChat && isAndroid;
+        const canUseWebDirectChat = !isAndroid && !canUseBridgeStream && !canUseBridgeChat;
 
         // CAMBIO: solo pedir key manual si se habilitó explícitamente el modo legacy
         const shouldRequireAndroidManualKey = canUseAndroidNativeChat && canPromptAndroidManualApiKey();
@@ -2876,8 +2883,14 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             } else {
                 if (isAndroidRuntime()) {
                     finalReply = await callAssistantAndroid(messagesForApi, { provider: cfg.provider });
+                } else if (canUseAndroidNativeChat) {
+                    const androidApiKey = String(cfg.androidApiKey || '').trim();
+                    if (!androidApiKey) throw new Error('NO_API_KEY');
+                    finalReply = await callAssistantAndroid(messagesForApi, { provider: cfg.provider });
+                } else if (canUseWebDirectChat) {
+                    finalReply = await callAssistantAndroid(messagesForApi, { provider: cfg.provider });
                 } else {
-                    throw new Error(tr('assistant.mobileFallback'));
+                    throw new Error('ASSISTANT_BRIDGE_UNAVAILABLE');
                 }
             }
 
@@ -2897,11 +2910,15 @@ import { applyDocumentI18n, getIntlLocale, t } from './utils/i18n.js';
             console.error('assistant error', err);
             const rawMsg = err?.message || tr('assistant.contactError');
             const sanitized = sanitizeAssistantErrorMessage(rawMsg);
-            const msg = /NO_API_KEY|Falta API key/i.test(rawMsg)
-                ? (isAndroidRuntime() ? tr('assistant.apiKeyMissing') : tr('assistant.missingApiKey'))
-                : isInvalidApiKeyError(rawMsg)
-                    ? tr('assistant.invalidApiKey')
-                    : sanitized;
+            const msg = String(rawMsg) === 'ASSISTANT_BRIDGE_UNAVAILABLE'
+                ? (isAndroidRuntime()
+                    ? 'En Android este chat IA aún no está conectado al proveedor remoto. Puedes crear/editar eventos desde el formulario y consultar hoy/semana/mes desde el asistente.'
+                    : 'El chat IA no está disponible por bridge en web/electron. Configura backend remoto o appBridge.chat.')
+                : /NO_API_KEY|Falta API key/i.test(rawMsg)
+                    ? (isAndroidRuntime() ? tr('assistant.apiKeyMissing') : tr('assistant.missingApiKey'))
+                    : isInvalidApiKeyError(rawMsg)
+                        ? tr('assistant.invalidApiKey')
+                        : sanitized;
             appendAssistantMessage({ role: 'assistant', content: `⚠️ ${msg}` });
             setAssistantStatus(msg);
         } finally {
